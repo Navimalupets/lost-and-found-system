@@ -1,9 +1,13 @@
 import { useState, useEffect } from "react";
-import { lev, sim1, runMatch, sameness } from "./matching";
+import { detectType, TYPES, GENERIC, buildOther } from "./itemTypes";
+import { lev, runMatch, sameness, keywords, textSim, explain } from "./matching";
 
 /* =====================  DATA  ===================== */
 const KEY = "lf-system-v2";
-const THRESHOLD = 45;
+const THRESHOLD = 60;   // minimum to appear as a possible match
+const CLAIM_MIN = 80;   // minimum to be allowed to submit a claim
+const YEAR_LEVELS = ["1st year", "2nd year", "3rd year", "4th year"];
+const EMPTY_CLAIMER = { name: "", sid: "", course: "", year: "1st year", section: "", room: "" };
 const CATEGORIES = ["Electronics", "Wallets & bags", "Accessories", "Clothing", "Personal items", "Books & supplies", "Other"];
 
 function makeSeed() {
@@ -42,15 +46,14 @@ const allPairs = (S) =>
 
 /* =====================  NAV CONFIG  ===================== */
 const NAV = [
-  { section: "Your space", area: "Student & campus services", items: [["overview", "Overview", "home"], ["browse", "Browse reports", "search"], ["matches", "Possible matches", "heart"], ["mine", "My reports", "filePlus"]] },
+  { section: "Your space", area: "Student & campus services", items: [["overview", "Overview", "home"], ["browse", "Browse reports", "search"], ["mine", "My reports", "filePlus"]] },
   { section: "Guidance office", area: "Guidance office", items: [["claims", "Claims to review", "check"], ["log", "Log found item", "box"]] },
   { section: "System", area: "System", items: [["engine", "Matching engine", "sliders"]] },
 ];
 
 const HEADS = {
   overview: ["Overview", "A quick look at what is lost, what has been found, and what needs a decision."],
-  browse: ["Browse reports", "See what has been turned in and what others are looking for."],
-  matches: ["Possible matches", "A shared place to report, search, and carefully reconnect campus belongings."],
+  browse: ["Browse reports", "Tap a report to see its details and any possible matches."],
   mine: ["My reports", "Track your lost item reports and the claims you have sent."],
   report: ["Report a lost item", "Answer a few questions. The system compares your answers with found items."],
   claims: ["Claims to review", "Compare each student's proof with the hidden details on record."],
@@ -64,19 +67,17 @@ const areaOf = (page) => NAV.find((n) => n.items.some(([id]) => id === page))?.a
 const ICONS = {
   home: "M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10",
   search: "M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.3-4.3",
-  heart: "M12 21s-7-4.5-9-9a5 5 0 019-3 5 5 0 019 3c-2 4.5-9 9-9 9z",
   filePlus: "M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M12 12v6M9 15h6",
   file: "M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M9 13h6M9 17h4",
   check: "M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11",
   box: "M21 8l-9-5-9 5v8l9 5 9-5V8zM3.3 7.5L12 12l8.7-4.5M12 22V12",
   sliders: "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6",
-  plus: "M12 5v14M5 12h14",
   menu: "M3 6h18M3 12h18M3 18h18",
   arrow: "M5 12h14M13 6l6 6-6 6",
   chevron: "M9 6l6 6-6 6",
-  sparkle: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z",
   help: "M12 22a10 10 0 100-20 10 10 0 000 20zM9.1 9a3 3 0 015.8 1c0 2-3 3-3 3M12 17h.01",
-  shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 12l2 2 4-4",
+  moon: "M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z",
+  sun: "M12 17a5 5 0 100-10 5 5 0 000 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4",
 };
 
 function Icon({ name, size = 20, className }) {
@@ -115,151 +116,6 @@ function PageHead({ page }) {
   );
 }
 
-/* =====================  POSSIBLE MATCHES  ===================== */
-function PairCard({ pair, claim, onNotMine, onSendClaim }) {
-  const { lost, found, score } = pair;
-  const [open, setOpen] = useState(false);
-  const [claiming, setClaiming] = useState(false);
-  const [proof, setProof] = useState("");
-  const chips = sameness(lost, found);
-  const toggle = () => setOpen((o) => !o);
-
-  return (
-    <article className="pair-card">
-      <div
-        className="pair"
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        onClick={toggle}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }}
-      >
-        <div className="score"><b>{score}%</b><span>text similarity</span></div>
-        <div className="side lost-side">
-          <span className="kind lost">Lost</span>
-          <h3>{lost.item}</h3>
-          <p>{[lost.where, lost.cat].filter(Boolean).join(" · ")}</p>
-        </div>
-        <Icon name="arrow" className="arrow" />
-        <div className="side found-side">
-          <span className="kind found">Found</span>
-          <h3>{found.name}</h3>
-          <p>{[found.loc, found.cat].filter(Boolean).join(" · ")}</p>
-        </div>
-        <div className="chips">{chips.map((c) => <span className="chip" key={c}>{c}</span>)}</div>
-        <Icon name="chevron" className={`chev ${open ? "open" : ""}`} />
-      </div>
-
-      {open && (
-        <div className="pair-detail">
-          <div className="detail-cols">
-            <div>
-              <h4 className="eyebrow">What was reported lost</h4>
-              <dl>
-                <div><dt>Looks like</dt><dd>{lost.looks || "Not provided"}</dd></div>
-                <div><dt>Color and brand</dt><dd>{[lost.color, lost.brand].filter(Boolean).join(", ") || "Not provided"}</dd></div>
-                <div><dt>Contents</dt><dd>{lost.contents || "Not provided"}</dd></div>
-              </dl>
-            </div>
-            <div>
-              <h4 className="eyebrow">What was found</h4>
-              <dl>
-                <div><dt>Description</dt><dd>{found.desc || "Not provided"}</dd></div>
-                <div><dt>Color and brand</dt><dd>{[found.color, found.brand].filter(Boolean).join(", ") || "Not provided"}</dd></div>
-                <div><dt>Found at</dt><dd>{found.loc}, {fmtDate(found.dt)}</dd></div>
-              </dl>
-            </div>
-          </div>
-          <div className="bar"><i style={{ width: `${score}%` }} /></div>
-
-          <div className="claim-zone">
-            {claim ? (
-              <>
-                <p style={{ margin: 0 }}>Your claim: <Badge s={claim.status} /></p>
-                {claim.note && <p className="sub" style={{ margin: "8px 0 0" }}>{claim.note}</p>}
-                {claim.status === "Approved" && <p style={{ margin: "8px 0 0" }}><b>Visit the Guidance Office to receive your item.</b></p>}
-                {claim.status === "Released" && <p style={{ margin: "8px 0 0" }}><b>Item received. Case closed.</b></p>}
-              </>
-            ) : found.status !== "Available" ? (
-              <p style={{ margin: 0 }}><Badge s="Claimed" /> This item was claimed by another student.</p>
-            ) : (
-              <>
-                <button className="btn sm" onClick={() => setClaiming(true)}>This is mine – submit claim</button>
-                <button className="btn sm ghost" onClick={() => onNotMine(lost.id, found.id)}>Not mine</button>
-                {claiming && (
-                  <div>
-                    <label htmlFor={`pf-${lost.id}-${found.id}`}>How can you prove it is yours?</label>
-                    <textarea
-                      id={`pf-${lost.id}-${found.id}`}
-                      autoFocus
-                      value={proof}
-                      placeholder="Describe marks, contents, or details only the owner would know"
-                      onChange={(e) => setProof(e.target.value)}
-                    />
-                    <button className="btn sm" onClick={() => onSendClaim(lost.id, found.id, proof)}>Send claim</button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </article>
-  );
-}
-
-function MatchesPage({ S, go, onNotMine, onSendClaim }) {
-  const pairs = allPairs(S);
-  return (
-    <div className="stack">
-      <section className="hero">
-        <span className="ico"><Icon name="sparkle" size={26} /></span>
-        <div>
-          <div className="eyebrow">Text comparison demo</div>
-          <h2>Similar words can be a useful lead.</h2>
-          <p>
-            The Levenshtein algorithm counts the insertions, deletions, and substitutions needed to turn one word into another.
-            Each pair below is a Lost report compared with a Found item. Every suggestion still needs a person to confirm it.
-          </p>
-        </div>
-      </section>
-
-      <div className="formula">
-        <span className="lbl">Similarity</span>
-        <span className="eq">(1 − edit distance ÷ longest string) × 100</span>
-        <span className="note">Scores are illustrative and are not calibrated for real campus decisions.</span>
-      </div>
-
-      <div className="section-head">
-        <div>
-          <div className="eyebrow">Ranked candidates</div>
-          <h2>{pairs.length} possible pair{pairs.length === 1 ? "" : "s"}</h2>
-        </div>
-        <span className="pill"><Icon name="shield" size={18} /> Staff verification required</span>
-      </div>
-
-      {pairs.length ? (
-        <div className="pair-list" style={{ marginTop: 0 }}>
-          {pairs.map((p) => (
-            <PairCard
-              key={`${p.lost.id}-${p.found.id}`}
-              pair={p}
-              claim={S.claims.find((c) => c.lostId === p.lost.id && c.foundId === p.found.id)}
-              onNotMine={onNotMine}
-              onSendClaim={onSendClaim}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="empty">
-          No possible matches yet.
-          <div><button className="btn sm" onClick={() => go("report")}>Report a lost item</button></div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* =====================  OVERVIEW  ===================== */
 function Overview({ S, go }) {
   const pairs = allPairs(S);
@@ -280,7 +136,7 @@ function Overview({ S, go }) {
             <h2>Top possible matches</h2>
             <p className="sub" style={{ margin: 0 }}>The highest scoring pairs right now.</p>
           </div>
-          <button className="btn sm ghost" style={{ margin: 0 }} onClick={() => go("matches")}>See all matches</button>
+          <button className="btn sm ghost" style={{ margin: 0 }} onClick={() => go("browse", "lost")}>See lost reports</button>
         </div>
         <div style={{ marginTop: 10 }}>
           {pairs.length ? (
@@ -300,7 +156,7 @@ function Overview({ S, go }) {
         <button className="btn ghost" style={{ margin: 0, padding: 18, textAlign: "left" }} onClick={() => go("report")}>
           Report a lost item
         </button>
-        <button className="btn ghost" style={{ margin: 0, padding: 18, textAlign: "left" }} onClick={() => go("browse")}>
+        <button className="btn ghost" style={{ margin: 0, padding: 18, textAlign: "left" }} onClick={() => go("browse", "found")}>
           Browse found items
         </button>
       </div>
@@ -309,47 +165,278 @@ function Overview({ S, go }) {
 }
 
 /* =====================  BROWSE  ===================== */
-function Browse({ S }) {
-  const [tab, setTab] = useState("found");
-  return (
-    <div>
-      <div className="tabs" role="group" aria-label="Report type">
-        <button className={tab === "found" ? "on" : ""} onClick={() => setTab("found")}>Found items ({S.found.length})</button>
-        <button className={tab === "lost" ? "on" : ""} onClick={() => setTab("lost")}>Lost reports ({S.lost.length})</button>
-      </div>
+function ClaimZone({ lost, found, claim, canClaim, onNotMine, onSendClaim }) {
+  const [claiming, setClaiming] = useState(false);
+  const [proof, setProof] = useState("");
+  const [who, setWho] = useState(EMPTY_CLAIMER);
+  const set = (k) => (v) => setWho((w) => ({ ...w, [k]: v }));
+  const p = `${lost.id}-${found.id}`;
 
-      <div className="grid2" style={{ marginTop: 14 }}>
-        {tab === "found"
-          ? S.found.map((f) => (
-              <div className="item" key={f.id}>
-                <div className="row">
-                  <span className="kind found">Found</span>
-                  <span className={`tag ${f.status === "Released" ? "ok" : ""}`}>{f.status}</span>
-                </div>
-                <h3 style={{ marginTop: 8 }}>{f.name}</h3>
-                <p>{[f.cat, f.color, f.brand].filter(Boolean).join(" · ")}</p>
-                <p>{f.desc}</p>
-                <p>Found at {f.loc}, {fmtDate(f.dt)}</p>
+  return (
+    <div className="claim-zone">
+      {claim ? (
+        <>
+          <p style={{ margin: 0 }}>Your claim: <Badge s={claim.status} /></p>
+          {claim.claimer && <p className="sub" style={{ margin: "8px 0 0" }}>Submitted by {claim.claimer.name} ({claim.claimer.sid})</p>}
+          {claim.note && <p className="sub" style={{ margin: "8px 0 0" }}>{claim.note}</p>}
+          {claim.status === "Approved" && <p style={{ margin: "8px 0 0" }}><b>Visit the Guidance Office to receive your item.</b></p>}
+          {claim.status === "Released" && <p style={{ margin: "8px 0 0" }}><b>Item received. Case closed.</b></p>}
+        </>
+      ) : found.status !== "Available" ? (
+        <p style={{ margin: 0 }}><Badge s="Claimed" /> This item was claimed by another student.</p>
+      ) : (
+        <>
+          {canClaim ? (
+            !claiming && <button className="btn sm" onClick={() => setClaiming(true)}>This is mine – submit claim</button>
+          ) : (
+            <p className="sub" style={{ margin: "0 0 4px" }}>
+              This is only a similar item. Claiming opens at {CLAIM_MIN}% or higher. Visit the Guidance Office if you think it is yours.
+            </p>
+          )}
+          {!claiming && <button className="btn sm ghost" onClick={() => onNotMine(lost.id, found.id)}>Not mine</button>}
+
+          {claiming && (
+            <div>
+              <h4 className="eyebrow" style={{ marginTop: 6 }}>Claimant information</h4>
+              <Field id={`cn-${p}`} label="Full name" placeholder="Last name, First name M.I." value={who.name} onChange={set("name")} />
+              <div className="cols">
+                <div><Field id={`cs-${p}`} label="Student ID" value={who.sid} onChange={set("sid")} /></div>
+                <div><Field id={`cc-${p}`} label="Course" placeholder="e.g. BSIT" value={who.course} onChange={set("course")} /></div>
               </div>
-            ))
-          : S.lost.length
-          ? S.lost.slice().reverse().map((l) => (
-              <div className="item" key={l.id}>
-                <div className="row">
-                  <span className="kind lost">Lost</span>
-                  <span className="tag">{l.matches.length} possible match{l.matches.length === 1 ? "" : "es"}</span>
+              <div className="cols">
+                <div>
+                  <label htmlFor={`cy-${p}`}>Year level</label>
+                  <select id={`cy-${p}`} value={who.year} onChange={(e) => set("year")(e.target.value)}>
+                    {YEAR_LEVELS.map((y) => <option key={y}>{y}</option>)}
+                  </select>
                 </div>
-                <h3 style={{ marginTop: 8 }}>{l.item}</h3>
-                <p>{[l.cat, l.color, l.brand].filter(Boolean).join(" · ")}</p>
-                <p>Lost near {l.where || "an unknown place"}</p>
+                <div><Field id={`cx-${p}`} label="Section" value={who.section} onChange={set("section")} /></div>
               </div>
-            ))
-          : <div className="empty">No lost reports yet.</div>}
-      </div>
+              <Field id={`cr-${p}`} label="Room number" value={who.room} onChange={set("room")} />
+
+              <label htmlFor={`pf-${p}`}>How can you prove it is yours?</label>
+              <textarea
+                id={`pf-${p}`}
+                value={proof}
+                placeholder="Describe marks, contents, or details only the owner would know"
+                onChange={(e) => setProof(e.target.value)}
+              />
+              <button className="btn sm" onClick={() => onSendClaim(lost.id, found.id, proof, who)}>Send claim</button>
+              <button className="btn sm ghost" onClick={() => setClaiming(false)}>Cancel</button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
 
+function MatchBlock({ lost, found, score, rank, claim, onNotMine, onSendClaim }) {
+  const rows = explain(lost, found);
+  const chips = sameness(lost, found);
+  const strong = rows.filter((r) => r.pct >= 80).map((r) => r.label.toLowerCase());
+  const weak = rows.filter((r) => r.pct < 50).map((r) => r.label.toLowerCase());
+  const canClaim = score >= CLAIM_MIN;
+  return (
+    <div className={`match-block ${canClaim ? "best" : ""}`}>
+      <div className="match-top">
+        <div>
+          <span className="kind found">Found</span>
+          <h3>{found.name}</h3>
+          <p>{found.loc} · {fmtDate(found.dt)}</p>
+        </div>
+        <div className="match-score">
+          <b>{score}%</b>
+          <span className={`tag ${canClaim ? "ok" : ""}`}>{canClaim ? "Strong match" : "Similar item"}</span>
+        </div>
+      </div>
+      <div className="bar"><i style={{ width: `${score}%` }} /></div>
+
+      <h4 className="eyebrow" style={{ marginTop: 14 }}>Why this matches</h4>
+      <p className="sub" style={{ margin: "6px 0 0" }}>
+        {strong.length ? `Strong match: ${strong.join(", ")}.` : "No strongly matching detail."}
+        {weak.length ? ` Different: ${weak.join(", ")}.` : ""}
+      </p>
+      {chips.length > 0 && (
+        <div className="pair-meta" style={{ margin: "10px 0 0" }}>
+          {chips.map((c) => <span className="chip" key={c}>{c}</span>)}
+        </div>
+      )}
+      <ul className="why">
+        {rows.map((r) => (
+          <li key={r.label} className={r.pct >= 80 ? "strong" : ""}>
+            <div className="why-head"><span>{r.label}</span><span>{r.pct}%</span></div>
+            {r.hidden ? (
+              <p>{r.pct >= 60 ? "Matches the hidden details on record." : "Does not clearly match the hidden details on record."}</p>
+            ) : (
+              <>
+                <p>You wrote “{r.lost}” · Found: “{r.found || "not recorded"}”</p>
+                <p>
+                  {r.shared.length
+                    ? <>Common: {r.shared.map((w) => <mark key={w}>{w}</mark>)}</>
+                    : "No common word."}
+                </p>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      <ClaimZone lost={lost} found={found} claim={claim} canClaim={canClaim} onNotMine={onNotMine} onSendClaim={onSendClaim} />
+    </div>
+  );
+}
+
+function Facts({ rows }) {
+  return (
+    <dl className="facts">
+      {rows.map(([k, v]) => (
+        <div key={k}><dt>{k}</dt><dd>{v || "Not provided"}</dd></div>
+      ))}
+    </dl>
+  );
+}
+
+function Browse({ S, tab, setTab, openId, setOpenId, onNotMine, onSendClaim }) {
+  const close = () => setOpenId(null);
+  const switchTab = (t) => { setTab(t); setOpenId(null); };
+  const keyOpen = (id) => (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenId(id); }
+  };
+
+  const selected =
+    openId == null ? null : tab === "found" ? S.found.find((f) => f.id === openId) : S.lost.find((l) => l.id === openId);
+
+  // close with Esc, and stop the page behind from scrolling
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e) => { if (e.key === "Escape") setOpenId(null); };
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [selected, setOpenId]);
+
+  return (
+    <div>
+      <div className="tabs" role="group" aria-label="Report type">
+        <button className={tab === "found" ? "on" : ""} onClick={() => switchTab("found")}>Found items ({S.found.length})</button>
+        <button className={tab === "lost" ? "on" : ""} onClick={() => switchTab("lost")}>Lost reports ({S.lost.length})</button>
+      </div>
+
+      <div className="grid2" style={{ marginTop: 14 }}>
+        {tab === "found"
+          ? S.found.map((f, i) => (
+              <div className="item browse-card" key={f.id} style={{ animationDelay: `${i * 50}ms` }}>
+                <div className="card-top" role="button" tabIndex={0} onClick={() => setOpenId(f.id)} onKeyDown={keyOpen(f.id)}>
+                  <div className="row">
+                    <span className="kind found">Found</span>
+                    <span className={`tag ${f.status === "Released" ? "ok" : ""}`}>{f.status}</span>
+                  </div>
+                  <h3 style={{ marginTop: 8 }}>{f.name}</h3>
+                  <p>{[f.cat, f.color, f.brand].filter(Boolean).join(" · ")}</p>
+                  <p>Found at {f.loc}, {fmtDate(f.dt)}</p>
+                  <Icon name="arrow" className="go" />
+                </div>
+              </div>
+            ))
+          : S.lost.length
+          ? S.lost.slice().reverse().map((l, i) => {
+              const best = l.matches[0];
+              return (
+                <div className="item browse-card" key={l.id} style={{ animationDelay: `${i * 50}ms` }}>
+                  <div className="card-top" role="button" tabIndex={0} onClick={() => setOpenId(l.id)} onKeyDown={keyOpen(l.id)}>
+                    <div className="row">
+                      <span className="kind lost">Lost</span>
+                      {best
+                        ? <span className="tag ok">{best.score}% · {l.matches.length} possible match{l.matches.length === 1 ? "" : "es"}</span>
+                        : <span className="tag">No match yet</span>}
+                    </div>
+                    <h3 style={{ marginTop: 8 }}>{l.item}</h3>
+                    <p>{[l.cat, l.color, l.brand].filter(Boolean).join(" · ")}</p>
+                    <p>Lost near {l.where || "an unknown place"}</p>
+                    <Icon name="arrow" className="go" />
+                  </div>
+                </div>
+              );
+            })
+          : <div className="empty">No lost reports yet.</div>}
+      </div>
+
+      {selected && (
+        <div className="modal-scrim" onClick={close}>
+          <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <span className={`kind ${tab}`}>{tab === "found" ? "Found" : "Lost"}</span>
+                <h2>{tab === "found" ? selected.name : selected.item}</h2>
+              </div>
+              <button className="modal-x" onClick={close} aria-label="Close">×</button>
+            </div>
+
+            <div className="modal-body">
+              {tab === "found" ? (
+                <>
+                  <Facts rows={[
+                    ["Category", selected.cat],
+                    ["Color", selected.color],
+                    ["Brand", selected.brand],
+                    ["Status", selected.status],
+                    ["Found at", selected.loc],
+                    ["Date found", fmtDate(selected.dt)],
+                    ["Description", selected.desc],
+                  ]} />
+                  <p className="sub" style={{ margin: "16px 0 0" }}>
+                    Some identifying details are kept private by the Guidance Office to verify the real owner.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Facts rows={[
+                    ["Category", selected.cat],
+                    ["Color", selected.color],
+                    ["Brand", selected.brand],
+                    ["Lost near", selected.where],
+                    ["Looks like", selected.looks],
+                    ["Summary", selected.contents],
+                  ]} />
+
+                  <h4 className="eyebrow" style={{ marginTop: 24 }}>
+                    {selected.matches.length ? `Possible matches (${selected.matches.length})` : "Possible matches"}
+                  </h4>
+                  {selected.matches.length ? (
+                    selected.matches.map((m, i) => {
+                      const f = S.found.find((x) => x.id === m.foundId);
+                      if (!f) return null;
+                      return (
+                        <MatchBlock
+                          key={m.foundId}
+                          lost={selected}
+                          found={f}
+                          score={m.score}
+                          rank={i}
+                          claim={S.claims.find((c) => c.lostId === selected.id && c.foundId === f.id)}
+                          onNotMine={onNotMine}
+                          onSendClaim={onSendClaim}
+                        />
+                      );
+                    })
+                  ) : (
+                    <p className="sub" style={{ margin: "8px 0 0" }}>
+                      Nothing similar has been turned in yet. Check back after Guidance logs new items.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 /* =====================  MY REPORTS / REPORT FORM  ===================== */
 function MyReports({ S, go }) {
   const mine = S.lost.slice().reverse();
@@ -375,6 +462,7 @@ function MyReports({ S, go }) {
               <div className="list">
                 {l.matches.map((m) => {
                   const f = S.found.find((x) => x.id === m.foundId);
+                  if (!f) return null;
                   const c = claims.find((x) => x.foundId === m.foundId);
                   return (
                     <div className="item" key={m.foundId}>
@@ -386,7 +474,7 @@ function MyReports({ S, go }) {
                     </div>
                   );
                 })}
-                <div><button className="btn sm ghost" style={{ margin: 0 }} onClick={() => go("matches")}>Open in Possible matches</button></div>
+                <div><button className="btn sm ghost" style={{ margin: 0 }} onClick={() => go("browse", "lost", l.id)}>See details and why it matches</button></div>
               </div>
             ) : (
               <p className="sub" style={{ margin: 0 }}>Nothing similar has been turned in yet. Check back after Guidance logs new items.</p>
@@ -398,19 +486,43 @@ function MyReports({ S, go }) {
   );
 }
 
-const EMPTY_LOST = { item: "", cat: "Other", color: "", brand: "", looks: "", contents: "", where: "" };
+const EMPTY_LOST = { item: "", cat: "Other", color: "", brand: "", looks: "", contents: "", where: "", extra: {} };
 
-function ReportPage({ onSubmitLost, toast }) {
+function LostForm({ onSubmitLost, toast }) {
   const [form, setForm] = useState(EMPTY_LOST);
+  const [manual, setManual] = useState(false); // true once the student edits the sentence by hand
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+  const setExtra = (k, v) => setForm((f) => ({ ...f, extra: { ...f.extra, [k]: v } }));
+
+  const typeKey = detectType(form.item);
+  const type = typeKey ? TYPES[typeKey] : GENERIC;
+  const auto = buildOther(type, form, "lost");
+  const details = manual ? form.contents : auto;
+
+  const onItem = (v) =>
+    setForm((f) => {
+      const k = detectType(v);
+      return { ...f, item: v, cat: k ? TYPES[k].cat : f.cat };
+    });
+
   const submit = () => {
     if (!form.item.trim()) return toast("Tell us what item you lost.");
-    onSubmitLost(form);
+    const { extra, ...rest } = form;
+    onSubmitLost({ ...rest, contents: details });
     setForm(EMPTY_LOST);
+    setManual(false);
   };
+
   return (
     <section className="card" style={{ maxWidth: 680 }}>
-      <Field id="q-item" label="What item did you lose?" placeholder="e.g. black umbrella" value={form.item} onChange={set("item")} />
+      <Field id="q-item" label="What item did you lose?" placeholder="e.g. black umbrella" value={form.item} onChange={onItem} />
+      {form.item.trim() && (
+        <p className="sub" style={{ margin: "8px 0 0" }}>
+          <span className={`tag ${typeKey ? "ok" : ""}`}>{typeKey ? `Detected: ${type.title}` : "Item not recognised"}</span>{" "}
+          {typeKey ? "Showing the important details for this item." : "Showing general details."}
+        </p>
+      )}
+
       <label htmlFor="q-cat">Category</label>
       <select id="q-cat" value={form.cat} onChange={(e) => set("cat")(e.target.value)}>
         {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
@@ -419,12 +531,47 @@ function ReportPage({ onSubmitLost, toast }) {
         <div><Field id="q-color" label="What color is it?" value={form.color} onChange={set("color")} /></div>
         <div><Field id="q-brand" label="What brand?" value={form.brand} onChange={set("brand")} /></div>
       </div>
-      <Field id="q-looks" label="What does it look like?" placeholder="Size, marks, condition" textarea value={form.looks} onChange={set("looks")} />
-      <Field id="q-contents" label="What are its contents?" placeholder="Anything inside or attached" textarea value={form.contents} onChange={set("contents")} />
       <Field id="q-where" label="Where did you lose it?" placeholder="e.g. library" value={form.where} onChange={set("where")} />
+
+      <h4 className="eyebrow" style={{ marginTop: 24 }}>{type.title} details</h4>
+      <div className="cols">
+        {type.fields.map((fd) =>
+          fd.opts ? (
+            <div key={fd.k}>
+              <label htmlFor={`qx-${fd.k}`}>{fd.label}</label>
+              <select id={`qx-${fd.k}`} value={form.extra[fd.k] || ""} onChange={(e) => setExtra(fd.k, e.target.value)}>
+                <option value="">–</option>
+                {fd.opts.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div key={fd.k}>
+              <Field id={`qx-${fd.k}`} label={fd.label} placeholder={fd.ph} value={form.extra[fd.k] || ""} onChange={(v) => setExtra(fd.k, v)} />
+            </div>
+          )
+        )}
+      </div>
+
+      <Field id="q-looks" label="Anything else about how it looks?" placeholder="Optional: size, marks, condition" textarea value={form.looks} onChange={set("looks")} />
+
+      <label htmlFor="q-details">Summary of your item</label>
+      <textarea
+        id="q-details"
+        placeholder="Written automatically as you fill in the details above"
+        value={details}
+        onChange={(e) => { setManual(true); set("contents")(e.target.value); }}
+        style={{ minHeight: 110 }}
+      />
+      <p className="sub" style={{ margin: "6px 0 0" }}>Written automatically. You can still edit it.</p>
+      {manual && <button className="btn sm ghost" onClick={() => setManual(false)}>Regenerate from details</button>}
+
       <button className="btn" onClick={submit}>Submit lost item details</button>
     </section>
   );
+}
+
+function ReportPage({ onSubmitLost, toast }) {
+  return <LostForm onSubmitLost={onSubmitLost} toast={toast} />;
 }
 
 /* =====================  GUIDANCE  ===================== */
@@ -434,6 +581,14 @@ function ClaimCard({ claim, S, onApprove, onReject, onRelease }) {
   return (
     <div className="item">
       <div className="row"><h3>{f.name}</h3><Badge s={claim.status} /></div>
+      {claim.claimer && (
+        <div className="proof">
+          <b>Claimed by</b>
+          {claim.claimer.name}<br />
+          Student ID: {claim.claimer.sid} · {claim.claimer.course}, {claim.claimer.year}<br />
+          Section: {claim.claimer.section} · Room: {claim.claimer.room}
+        </div>
+      )}
       <div className="proof"><b>Student reported</b>{l.item}, {l.color}, {l.brand}: {l.looks}</div>
       <div className="proof"><b>Proof of ownership</b>{claim.proof}</div>
       <div className="proof"><b>Hidden details on record</b>{f.other || "None recorded"}</div>
@@ -463,19 +618,43 @@ function ClaimsPage({ S, onApprove, onReject, onRelease }) {
   );
 }
 
-const EMPTY_FOUND = { name: "", cat: "Electronics", color: "", brand: "", loc: "", desc: "", dt: "", other: "" };
+const EMPTY_FOUND = { name: "", cat: "Electronics", color: "", brand: "", loc: "", desc: "", dt: "", other: "", extra: {} };
 
 function LogPage({ onSaveFound, toast }) {
   const [form, setForm] = useState(EMPTY_FOUND);
+  const [manual, setManual] = useState(false); // true once staff edit the sentence by hand
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+  const setExtra = (k, v) => setForm((f) => ({ ...f, extra: { ...f.extra, [k]: v } }));
+
+  const typeKey = detectType(form.name);
+  const type = typeKey ? TYPES[typeKey] : GENERIC;
+  const auto = buildOther(type, form);
+  const other = manual ? form.other : auto;
+
+  const onName = (v) =>
+    setForm((f) => {
+      const k = detectType(v);
+      return { ...f, name: v, cat: k ? TYPES[k].cat : f.cat };
+    });
+
   const save = () => {
     if (!form.name.trim()) return toast("Enter the item name.");
-    onSaveFound(form);
+    const { extra, ...rest } = form;
+    onSaveFound({ ...rest, other });
     setForm(EMPTY_FOUND);
+    setManual(false);
   };
+
   return (
     <section className="card" style={{ maxWidth: 680 }}>
-      <Field id="f-name" label="Item name" value={form.name} onChange={set("name")} />
+      <Field id="f-name" label="Item name" placeholder="e.g. red wallet" value={form.name} onChange={onName} />
+      {form.name.trim() && (
+        <p className="sub" style={{ margin: "8px 0 0" }}>
+          <span className={`tag ${typeKey ? "ok" : ""}`}>{typeKey ? `Detected: ${type.title}` : "Item not recognised"}</span>{" "}
+          {typeKey ? "Showing the important details for this item." : "Showing general details."}
+        </p>
+      )}
+
       <div className="cols">
         <div>
           <label htmlFor="f-cat">Category</label>
@@ -489,10 +668,43 @@ function LogPage({ onSaveFound, toast }) {
         <div><Field id="f-brand" label="Brand" value={form.brand} onChange={set("brand")} /></div>
         <div><Field id="f-loc" label="Location found" value={form.loc} onChange={set("loc")} /></div>
       </div>
+
+      <h4 className="eyebrow" style={{ marginTop: 24 }}>{type.title} details</h4>
+      <div className="cols">
+        {type.fields.map((fd) =>
+          fd.opts ? (
+            <div key={fd.k}>
+              <label htmlFor={`x-${fd.k}`}>{fd.label}</label>
+              <select id={`x-${fd.k}`} value={form.extra[fd.k] || ""} onChange={(e) => setExtra(fd.k, e.target.value)}>
+                <option value="">–</option>
+                {fd.opts.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div key={fd.k}>
+              <Field id={`x-${fd.k}`} label={fd.label} placeholder={fd.ph} value={form.extra[fd.k] || ""} onChange={(v) => setExtra(fd.k, v)} />
+            </div>
+          )
+        )}
+      </div>
+
       <Field id="f-desc" label="Description" textarea value={form.desc} onChange={set("desc")} />
       <label htmlFor="f-dt">Date and time found</label>
       <input type="datetime-local" id="f-dt" value={form.dt} onChange={(e) => set("dt")(e.target.value)} />
-      <Field id="f-other" label="Other identifying details" placeholder="Hidden from students; used to verify ownership" textarea value={form.other} onChange={set("other")} />
+
+      <label htmlFor="f-other">Other identifying details</label>
+      <textarea
+        id="f-other"
+        placeholder="Written automatically as you fill in the details above"
+        value={other}
+        onChange={(e) => { setManual(true); set("other")(e.target.value); }}
+        style={{ minHeight: 110 }}
+      />
+      <p className="sub" style={{ margin: "6px 0 0" }}>
+        Hidden from students. Written automatically; you can still edit it.
+      </p>
+      {manual && <button className="btn sm ghost" onClick={() => setManual(false)}>Regenerate from details</button>}
+
       <button className="btn" onClick={save}>Save found item record</button>
     </section>
   );
@@ -500,9 +712,10 @@ function LogPage({ onSaveFound, toast }) {
 
 /* =====================  SYSTEM  ===================== */
 function EnginePage({ S, log, onThreshold, onReset }) {
-  const [a, setA] = useState("umbrlla");
-  const [b, setB] = useState("umbrella");
-  const la = a.toLowerCase(), lb = b.toLowerCase();
+  const [a, setA] = useState("nawawala yung walet ko sa kantina, kulay itim");
+  const [b, setB] = useState("I left my black wallet in the canteen");
+  const ka = keywords(a), kb = keywords(b);
+  const simPct = Math.round((textSim(a, b) ?? 0) * 100);
   return (
     <div className="stack">
       <section className="card">
@@ -532,14 +745,16 @@ function EnginePage({ S, log, onThreshold, onReset }) {
 
       <section className="card" style={{ maxWidth: 680 }}>
         <h2>Try Levenshtein distance</h2>
-        <p className="sub">Type two words to see how many edits separate them.</p>
-        <Field id="ta" label="Word A" value={a} onChange={setA} />
-        <Field id="tb" label="Word B" value={b} onChange={setB} />
+        <p className="sub">Type a word or a whole sentence, in English or Tagalog. Only the item details are compared.</p>
+        <Field id="ta" label="Text A" value={a} onChange={setA} textarea />
+        <Field id="tb" label="Text B" value={b} onChange={setB} textarea />
         <div className="lev">
-          {!a && !b ? "Edits needed: –" : (
+          {!ka.length && !kb.length ? "Type something to compare." : (
             <>
-              Edits needed: <b>{lev(la, lb)}</b><br />
-              Similarity: <b>{Math.round(sim1(la, lb) * 100)}%</b>
+              Details found in A: <b>{ka.join(", ") || "–"}</b><br />
+              Details found in B: <b>{kb.join(", ") || "–"}</b><br />
+              Edits needed: <b>{lev(ka.join(" "), kb.join(" "))}</b><br />
+              Similarity: <b>{simPct}%</b>
             </>
           )}
         </div>
@@ -551,10 +766,24 @@ function EnginePage({ S, log, onThreshold, onReset }) {
 /* =====================  APP  ===================== */
 export default function App() {
   const [S, setS] = useState(load);
-  const [page, setPage] = useState("matches");
+  const [page, setPage] = useState("browse");
+  const [browseTab, setBrowseTab] = useState("found");
+  const [openId, setOpenId] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
   const [log, setLog] = useState([]);
   const [msg, setMsg] = useState("");
+  const [dark, setDark] = useState(() => {
+    try {
+      const t = localStorage.getItem("lf-theme");
+      if (t) return t === "dark";
+    } catch (e) {}
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    try { localStorage.setItem("lf-theme", dark ? "dark" : "light"); } catch (e) {}
+  }, [dark]);
 
   useEffect(() => {
     try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
@@ -566,14 +795,22 @@ export default function App() {
     return () => clearTimeout(t);
   }, [msg]);
 
-    // stop the page behind the menu from scrolling on phones
+  // stop the page behind the menu from scrolling on phones
   useEffect(() => {
     document.body.style.overflow = navOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [navOpen]);
 
   const toast = (m) => setMsg(m);
-  const go = (p) => { setPage(p); setNavOpen(false); window.scrollTo(0, 0); };
+  // go(page, browseTab?, openId?)
+  const go = (p, tab, id) => {
+    if (tab) setBrowseTab(tab);
+    if (id !== undefined) setOpenId(id);
+    else if (p === "browse") setOpenId(null);
+    setPage(p);
+    setNavOpen(false);
+    window.scrollTo(0, 0);
+  };
 
   /* ----- actions ----- */
   const submitLost = (form) => {
@@ -583,7 +820,7 @@ export default function App() {
     setLog(newLog);
     setS((p) => ({ ...p, lost: [...p.lost, l], nid: p.nid + 1 }));
     toast(matches.length ? "Possible match found." : "No match found yet.");
-    go(matches.length ? "matches" : "mine");
+    go("browse", "lost", l.id);
   };
 
   const notMine = (lostId, foundId) => {
@@ -594,11 +831,14 @@ export default function App() {
     toast("Match dismissed.");
   };
 
-  const sendClaim = (lostId, foundId, proof) => {
+  const sendClaim = (lostId, foundId, proof, who) => {
+    const missing = ["name", "sid", "course", "section", "room"].some((k) => !who[k].trim());
+    if (missing) return toast("Please fill in all your information.");
     if (!proof.trim()) return toast("Add your proof of ownership.");
+    const claimer = Object.fromEntries(Object.entries(who).map(([k, v]) => [k, v.trim()]));
     setS((p) => ({
       ...p,
-      claims: [...p.claims, { id: p.nid, lostId, foundId, proof: proof.trim(), status: "Pending", note: "Waiting for Guidance to review." }],
+      claims: [...p.claims, { id: p.nid, lostId, foundId, claimer, proof: proof.trim(), status: "Pending", note: "Waiting for Guidance to review." }],
       nid: p.nid + 1,
     }));
     toast("Claim submitted.");
@@ -608,7 +848,7 @@ export default function App() {
     const f = { id: S.nid, ...form, dt: form.dt || new Date().toISOString().slice(0, 16), status: "Available" };
     setS((p) => ({ ...p, found: [...p.found, f], nid: p.nid + 1 }));
     toast("Found item saved.");
-    go("browse");
+    go("browse", "found", f.id);
   };
 
   const updateClaim = (claimId, patch, foundStatus) =>
@@ -629,14 +869,22 @@ export default function App() {
   const reset = () => { setS(makeSeed()); setLog([]); toast("Demo data restored."); };
 
   const COUNTS = {
-    matches: allPairs(S).length,
     claims: S.claims.filter((c) => c.status === "Pending").length,
   };
 
   const VIEWS = {
     overview: <Overview S={S} go={go} />,
-    browse: <Browse S={S} />,
-    matches: <MatchesPage S={S} go={go} onNotMine={notMine} onSendClaim={sendClaim} />,
+    browse: (
+      <Browse
+        S={S}
+        tab={browseTab}
+        setTab={setBrowseTab}
+        openId={openId}
+        setOpenId={setOpenId}
+        onNotMine={notMine}
+        onSendClaim={sendClaim}
+      />
+    ),
     mine: <MyReports S={S} go={go} />,
     report: <ReportPage onSubmitLost={submitLost} toast={toast} />,
     claims: <ClaimsPage S={S} onApprove={approve} onReject={reject} onRelease={release} />,
@@ -686,13 +934,21 @@ export default function App() {
         <header className="topbar">
           <button className="icon-btn" onClick={() => setNavOpen(true)} aria-label="Open menu"><Icon name="menu" /></button>
           <div className="crumbs eyebrow">
-            <span>{areaOf(page)}</span>
-            <Icon name="chevron" size={14} />
+            <span className="crumb-area">{areaOf(page)}</span>
+            <Icon name="chevron" size={14} className="crumb-sep" />
             <span className="cur">{HEADS[page][0]}</span>
           </div>
           <div className="top-actions">
             <span className="demo-flag"><i /> Browser-only demo</span>
-            <button className="btn-primary" onClick={() => go("report")}><Icon name="filePlus" size={19} /> New report</button>
+            <button
+              className="theme-btn"
+              onClick={() => setDark((d) => !d)}
+              aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+              title={dark ? "Light mode" : "Dark mode"}
+            >
+              <Icon name={dark ? "sun" : "moon"} />
+            </button>
+            <button className="btn-primary" aria-label="New report" onClick={() => go("report")}><Icon name="filePlus" size={19} /> <span className="btn-label">New report</span></button>
           </div>
         </header>
 
