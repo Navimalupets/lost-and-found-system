@@ -79,6 +79,7 @@ const GROUPS = {
 
   /* ===== PLACES ===== */
   canteen: ["kantina", "cafeteria", "kainan"],
+  atrium: ["foyer"],
   library: ["aklatan", "silid-aklatan"],
   gym: ["gymnasium", "court"],
   hallway: ["pasilyo", "corridor", "lobby"],
@@ -118,8 +119,8 @@ export function lookup(w) {
       const s = sim1(w, k);
       if (s > bs) { bs = s; best = k; }
     }
-    // 4-letter words need an exact match (1 typo = 75%, too loose: "note" -> "tote")
-    if (bs >= (w.length <= 4 ? 0.9 : 0.75)) return CANON[best];
+    // 80% needed: blocks "note" -> "tote" (75%) but accepts "blck" -> "black", "gren" -> "green" (80%)
+    if (bs >= 0.8) return CANON[best];
   }
   return null;
 }

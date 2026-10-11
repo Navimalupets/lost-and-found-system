@@ -711,8 +711,8 @@ function LogPage({ onSaveFound, toast }) {
 
 /* =====================  SYSTEM  ===================== */
 function EnginePage({ S, log, onThreshold, onReset }) {
-  const [a, setA] = useState("nawawala yung walet ko sa kantina, kulay itim");
-  const [b, setB] = useState("I left my black wallet in the canteen");
+  const [a, setA] = useState("");
+  const [b, setB] = useState("");
   const ka = keywords(a), kb = keywords(b);
   const simPct = Math.round((textSim(a, b) ?? 0) * 100);
   return (
@@ -748,12 +748,20 @@ function EnginePage({ S, log, onThreshold, onReset }) {
         <Field id="ta" label="Text A" value={a} onChange={setA} textarea />
         <Field id="tb" label="Text B" value={b} onChange={setB} textarea />
         <div className="lev">
-          {!ka.length && !kb.length ? "Type something to compare." : (
+          {!a.trim() && !b.trim() ? (
+            "Type something to compare."
+          ) : (
             <>
-              Details found in A: <b>{ka.join(", ") || "–"}</b><br />
-              Details found in B: <b>{kb.join(", ") || "–"}</b><br />
-              Edits needed: <b>{lev(ka.join(" "), kb.join(" "))}</b><br />
-              Similarity: <b>{simPct}%</b>
+              Details found in A: <b>{ka.join(", ") || "none recognized"}</b><br />
+              Details found in B: <b>{kb.join(", ") || "none recognized"}</b><br />
+              {ka.length && kb.length ? (
+                <>
+                  Edits needed: <b>{lev([...ka].sort().join(" "), [...kb].sort().join(" "))}</b><br />
+                  Similarity: <b>{simPct}%</b>
+                </>
+              ) : (
+                "Both texts need at least one recognized item detail to compare."
+              )}
             </>
           )}
         </div>
