@@ -12,7 +12,7 @@ const CATEGORIES = ["Electronics", "Wallets & bags", "Accessories", "Clothing", 
 
 function makeSeed() {
   const found = [
-    { id: 1, name: "Black Umbrella", cat: "Accessories", color: "Black", brand: "Totes", desc: "Large folding umbrella with a wooden handle", loc: "Library entrance", dt: "2026-09-28T10:30", other: "Initials 'MR' written on the strap", status: "Available" },
+    { id: 1, name: "Black Umbrella", cat: "Personal items", color: "Black", brand: "Totes", desc: "Large folding umbrella with a wooden handle", loc: "Library entrance", dt: "2026-09-28T10:30", other: "Initials 'MR' written on the strap", status: "Available" },
     { id: 2, name: "Blue Water Bottle", cat: "Personal items", color: "Blue", brand: "Hydro Flask", desc: "Insulated bottle with a dented bottom and stickers", loc: "Gym", dt: "2026-10-01T15:10", other: "Sticker of a cat on the lid", status: "Available" },
     { id: 3, name: "Scientific Calculator", cat: "Electronics", color: "Gray", brand: "Casio", desc: "fx-991 calculator with a cracked cover", loc: "Room 204", dt: "2026-10-02T09:00", other: "Name tape inside battery cover", status: "Available" },
     { id: 4, name: "Red Wallet", cat: "Wallets & bags", color: "Red", brand: "Fossil", desc: "Small leather wallet with a zipper", loc: "Canteen", dt: "2026-10-03T12:20", other: "Contains a student ID and 2 library cards", status: "Available" },
@@ -20,7 +20,7 @@ function makeSeed() {
     { id: 6, name: "Blue Student Backpack", cat: "Wallets & bags", color: "Blue", brand: "", desc: "Blue backpack with a front zipper pocket", loc: "Academic Building hallway", dt: "2026-10-05T08:15", other: "Keychain shaped like a star", status: "Available" },
   ];
   const lostRaw = [
-    { id: 7, item: "Umbrlla", cat: "Accessories", color: "Black", brand: "Totes", looks: "Big foldable umbrela with wooden handle", contents: "", where: "Library" },
+    { id: 7, item: "Umbrlla", cat: "Personal items", color: "Black", brand: "Totes", looks: "Big foldable umbrela with wooden handle", contents: "", where: "Library" },
     { id: 8, item: "Red walet", cat: "Wallets & bags", color: "Red", brand: "Fossil", looks: "Small leather wallet", contents: "Student ID", where: "Canteen" },
     { id: 9, item: "USB C wall charger", cat: "Electronics", color: "White", brand: "Anker", looks: "20W charger", contents: "", where: "Computer Laboratory" },
   ];
@@ -75,7 +75,6 @@ const ICONS = {
   menu: "M3 6h18M3 12h18M3 18h18",
   arrow: "M5 12h14M13 6l6 6-6 6",
   chevron: "M9 6l6 6-6 6",
-  help: "M12 22a10 10 0 100-20 10 10 0 000 20zM9.1 9a3 3 0 015.8 1c0 2-3 3-3 3M12 17h.01",
   moon: "M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z",
   sun: "M12 17a5 5 0 100-10 5 5 0 000 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4",
 };
@@ -528,8 +527,8 @@ function LostForm({ onSubmitLost, toast }) {
         {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
       </select>
       <div className="cols">
-        <div><Field id="q-color" label="What color is it?" value={form.color} onChange={set("color")} /></div>
-        <div><Field id="q-brand" label="What brand?" value={form.brand} onChange={set("brand")} /></div>
+<div><Field id="q-color" label="What color is it?" placeholder="e.g. black" value={form.color} onChange={set("color")} /></div>
+<div><Field id="q-brand" label="What brand?" placeholder="e.g. Totes" value={form.brand} onChange={set("brand")} /></div>
       </div>
       <Field id="q-where" label="Where did you lose it?" placeholder="e.g. library" value={form.where} onChange={set("where")} />
 
@@ -540,7 +539,7 @@ function LostForm({ onSubmitLost, toast }) {
             <div key={fd.k}>
               <label htmlFor={`qx-${fd.k}`}>{fd.label}</label>
               <select id={`qx-${fd.k}`} value={form.extra[fd.k] || ""} onChange={(e) => setExtra(fd.k, e.target.value)}>
-                <option value="">–</option>
+               <option value="">Select</option>
                 {fd.opts.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
@@ -662,11 +661,11 @@ function LogPage({ onSaveFound, toast }) {
             {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
           </select>
         </div>
-        <div><Field id="f-color" label="Color" value={form.color} onChange={set("color")} /></div>
+<div><Field id="f-color" label="Color" placeholder="e.g. red" value={form.color} onChange={set("color")} /></div>
       </div>
       <div className="cols">
-        <div><Field id="f-brand" label="Brand" value={form.brand} onChange={set("brand")} /></div>
-        <div><Field id="f-loc" label="Location found" value={form.loc} onChange={set("loc")} /></div>
+<div><Field id="f-brand" label="Brand" placeholder="e.g. Fossil" value={form.brand} onChange={set("brand")} /></div>
+<div><Field id="f-loc" label="Location found" placeholder="e.g. canteen" value={form.loc} onChange={set("loc")} /></div>
       </div>
 
       <h4 className="eyebrow" style={{ marginTop: 24 }}>{type.title} details</h4>
@@ -676,7 +675,7 @@ function LogPage({ onSaveFound, toast }) {
             <div key={fd.k}>
               <label htmlFor={`x-${fd.k}`}>{fd.label}</label>
               <select id={`x-${fd.k}`} value={form.extra[fd.k] || ""} onChange={(e) => setExtra(fd.k, e.target.value)}>
-                <option value="">–</option>
+                <option value="">Select</option>
                 {fd.opts.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
@@ -919,14 +918,6 @@ export default function App() {
             </div>
           ))}
         </nav>
-
-        <div className="help">
-          <span className="ico"><Icon name="help" /></span>
-          <b>How matching works</b>
-          <p>Small spelling differences can still point to a useful lead.</p>
-          <button onClick={() => go("engine")}>See the demo <Icon name="arrow" size={16} /></button>
-        </div>
-        <div className="side-foot"><i /> Prototype, saved in this browser</div>
       </aside>
       {navOpen && <div className="scrim" onClick={() => setNavOpen(false)} />}
 
@@ -939,7 +930,6 @@ export default function App() {
             <span className="cur">{HEADS[page][0]}</span>
           </div>
           <div className="top-actions">
-            <span className="demo-flag"><i /> Browser-only demo</span>
             <button
               className="theme-btn"
               onClick={() => setDark((d) => !d)}

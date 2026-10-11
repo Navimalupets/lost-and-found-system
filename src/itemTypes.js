@@ -64,7 +64,7 @@ export const TYPES = {
 
   umbrella: {
     title: "Umbrella",
-    cat: "Accessories",
+    cat: "Personal items",
     fields: [
       pick("kind", "Type", ["folding", "long", "compact", "golf"]),
       pick("size", "Size", SIZES),
@@ -279,12 +279,21 @@ Object.assign(TYPES, {
     say(text("model", "Model", "e.g. Logitech M185"), (v) => `its model is ${v}`),
   ]),
 
-  /* ----- Accessories ----- */
+  /* Ring & Necklace-- */
   glasses: make("Eyeglasses", "Accessories", "pair of eyeglasses", [
     adjp("frame", "Frame", ["metal", "plastic"]),
     say(pick("lens", "Lenses", ["clear", "tinted", "cracked"]), (v) => `the lenses are ${v}`),
     say(pick("case", "Case", ["with case", "without case"]), (v) => `it was found ${v}`),
+  ]),  
+  ring: make("Ring", "Accessories", "ring", [
+    adjp("material", "Material", ["gold", "silver", "metal"]),
+    say(text("stone", "Stone or design", "e.g. small blue stone"), (v) => `it has ${art(v)} ${v}`),
   ]),
+  necklace: make("Necklace", "Accessories", "necklace", [
+    adjp("material", "Material", ["gold", "silver", "metal", "beaded"]),
+    say(text("pendant", "Pendant", "e.g. heart-shaped pendant"), (v) => `it has ${art(v)} ${v}`),
+  ]),
+
   watch: make("Watch", "Accessories", "watch", [
     adjp("kind", "Type", ["digital", "analog", "smart"]),
     say(pick("strap", "Strap", ["leather", "rubber", "metal", "fabric"]), (v) => `it has ${art(v)} ${v} strap`),

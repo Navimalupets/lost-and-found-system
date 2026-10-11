@@ -34,7 +34,7 @@ const GROUPS = {
   tablet: ["ipad"],
   keys: ["key", "susi", "keychain"],
   id: ["identification", "lanyard"],
-  notebook: ["kuwaderno", "notepad", "journal"],
+  notebook: ["note", "kuwaderno", "notepad", "journal"],
   book: ["libro", "textbook", "module"],
   pen: ["ballpen", "bolpen", "ballpoint", "marker", "highlighter"],
   pencil: ["lapis"],
@@ -51,7 +51,7 @@ const GROUPS = {
   mouse: ["mouse"],
   ruler: ["rula"],
   folder: ["envelope", "clearbook", "fastener"],
-  lunchbox: ["baon", "tupperware", "lunchbag"],
+  lunchbox: ["baon", "tupperware", "lunchbag", "lunch"],
   towel: ["tuwalya", "bimpo", "handkerchief", "panyo"],
   fan: ["pamaypay", "minifan", "electricfan"],
   labgown: ["gown", "labcoat", "apron"],
@@ -118,7 +118,8 @@ export function lookup(w) {
       const s = sim1(w, k);
       if (s > bs) { bs = s; best = k; }
     }
-    if (bs >= 0.75) return CANON[best]; // typo-tolerant (Levenshtein)
+    // 4-letter words need an exact match (1 typo = 75%, too loose: "note" -> "tote")
+    if (bs >= (w.length <= 4 ? 0.9 : 0.75)) return CANON[best];
   }
   return null;
 }
