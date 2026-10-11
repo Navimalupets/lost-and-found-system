@@ -566,6 +566,12 @@ export default function App() {
     return () => clearTimeout(t);
   }, [msg]);
 
+    // stop the page behind the menu from scrolling on phones
+  useEffect(() => {
+    document.body.style.overflow = navOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [navOpen]);
+
   const toast = (m) => setMsg(m);
   const go = (p) => { setPage(p); setNavOpen(false); window.scrollTo(0, 0); };
 

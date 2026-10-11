@@ -123,7 +123,7 @@ input[type=range]{padding:0;accent-color:var(--acc)}
 .stat{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px}
 .stat b{display:block;font-family:var(--serif);font-size:38px;font-weight:600;color:var(--ink);line-height:1.1}
 .stat span{font-size:15px;color:var(--mut)}
-.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px}
 .tabs{display:inline-flex;padding:4px;border:1px solid var(--line);background:#fff;border-radius:13px;margin-bottom:6px}
 .tabs button{padding:9px 18px;border:0;background:transparent;border-radius:9px;font-weight:700;font-size:15px;color:var(--mut);cursor:pointer}
 .tabs button.on{background:var(--ink);color:#fff}
@@ -150,5 +150,41 @@ input[type=range]{padding:0;accent-color:var(--acc)}
   .detail-cols,.cols{grid-template-columns:1fr}
   .hero{flex-direction:column;padding:22px}
   .formula .note{margin-left:0}
+}
+/* ---------- Phone ---------- */
+@media (max-width:560px){
+  .sidebar{width:min(300px,86vw)}
+  .topbar{gap:10px;min-height:60px;padding-left:12px;padding-right:12px}
+  .crumb-area,.crumb-sep{display:none}
+  .btn-label{display:none}
+  .btn-primary{padding:10px 13px}
+  .page{padding:22px 16px 56px}
+  .page-head{margin-bottom:20px}
+  .page-head p{font-size:16px}
+  .card{padding:18px;border-radius:16px}
+  .hero{padding:20px;gap:14px}
+  .hero .ico{width:48px;height:48px;border-radius:13px}
+  .formula{padding:14px 16px}
+  .formula .eq{font-size:17px}
+  .section-head h2{font-size:26px}
+  .stats{grid-template-columns:1fr 1fr;gap:10px}
+  .stat{padding:14px}
+  .stat b{font-size:30px}
+  .stat span{font-size:14px}
+  .tabs{display:flex;width:100%}
+  .tabs button{flex:1;padding:10px 6px}
+  .pair{grid-template-columns:minmax(0,1fr) 24px;grid-template-areas:"score chev" "lost lost" "found found" "chips chips";gap:12px 10px;padding:16px}
+  .score{display:flex;align-items:baseline;gap:8px}
+  .score b{font-size:30px}
+  .score span{margin-top:0}
+  .pair .found-side{padding-top:12px;border-top:1px dashed var(--line)}
+  .chips:empty{display:none}
+  .pair-detail{padding:18px 16px}
+  .btn.sm{padding:11px 14px}
+  .claim-zone .btn.sm{width:100%;margin:10px 0 0}
+  .mini{grid-template-columns:58px 1fr}
+  .side h3,.item h3{overflow-wrap:anywhere}
+  .lev{font-size:14.5px}
+  #toast{width:calc(100% - 32px);text-align:center}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
