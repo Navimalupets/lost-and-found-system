@@ -47,22 +47,22 @@ const allPairs = (S) =>
 
 /* =====================  NAV CONFIG  ===================== */
 const NAV = [
-  { section: "Your space", area: "Student & campus services", items: [["overview", "Overview", "home"], ["browse", "Browse reports", "search"], ["mine", "My reports", "filePlus"]] },
+  { section: "Records", area: "Records", items: [["overview", "Dashboard", "home"], ["browse", "Browse reports", "search"], ["mine", "Lost reports", "filePlus"]] },
   { section: "Guidance office", area: "Guidance office", items: [["claims", "Claims to review", "check"], ["log", "Log found item", "box"]] },
   { section: "System", area: "System", items: [["engine", "Matching engine", "sliders"]] },
 ];
 
 const HEADS = {
-  overview: ["Overview", "A quick look at what is lost, what has been found, and what needs a decision."],
-  browse: ["Browse reports", "Tap a report to see its details and any possible matches."],
-  mine: ["My reports", "Track your lost item reports and the claims you have sent."],
-  report: ["Report a lost item", "Answer a few questions. The system compares your answers with found items."],
+  overview: ["Dashboard", "A quick look at what is lost, what has been found, and what needs a decision."],
+  browse: ["Browse reports", "Click a report to see its details and any possible matches."],
+  mine: ["Lost reports", "Track each lost report and the claims recorded for it."],
+  report: ["Log a lost report", "Fill in the details. The system compares them with found items."],
   claims: ["Claims to review", "Compare each student's proof with the hidden details on record."],
   log: ["Log found item", "Record an item that was brought to the Guidance Office."],
   engine: ["Matching engine", "See how similarity is calculated and adjust how strict matching is."],
 };
 
-const areaOf = (page) => NAV.find((n) => n.items.some(([id]) => id === page))?.area ?? "Student & campus services";
+const areaOf = (page) => NAV.find((n) => n.items.some(([id]) => id === page))?.area ?? "Records";
 
 /* =====================  ICONS  ===================== */
 const ICONS = {
@@ -76,6 +76,7 @@ const ICONS = {
   menu: "M3 6h18M3 12h18M3 18h18",
   arrow: "M5 12h14M13 6l6 6-6 6",
   chevron: "M9 6l6 6-6 6",
+  help: "M12 21a9 9 0 100-18 9 9 0 000 18zM9.1 9a3 3 0 015.8 1c0 2-3 2.5-3 4M12 17.5h.01",
   moon: "M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z",
   sun: "M12 17a5 5 0 100-10 5 5 0 000 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4",
 };
@@ -147,14 +148,14 @@ function Overview({ S, go }) {
               </div>
             ))
           ) : (
-            <div className="empty">No matches yet. Report a lost item to get started.</div>
+            <div className="empty">No matches yet. Log a lost report to get started.</div>
           )}
         </div>
       </section>
 
       <div className="grid2">
-        <button className="btn ghost" style={{ margin: 0, padding: 18, textAlign: "left" }} onClick={() => go("report")}>
-          Report a lost item
+          <button className="btn ghost" style={{ margin: 0, padding: 18, textAlign: "left" }} onClick={() => go("report")}>
+          Log a lost report
         </button>
         <button className="btn ghost" style={{ margin: 0, padding: 18, textAlign: "left" }} onClick={() => go("browse", "found")}>
           Browse found items
@@ -289,13 +290,13 @@ function MatchBlock({ lost, found, score, rank, claim, onNotMine, onSendClaim })
         <div className="cmp-head">
           <div className="cmp-title cmp-title-found"><span className="kind found">Found item</span></div>
           <div className="cmp-mid-title">Match</div>
-          <div className="cmp-title cmp-title-lost"><span className="kind lost">Your report</span></div>
+          <div className="cmp-title cmp-title-lost"><span className="kind lost">Lost report</span></div>
         </div>
         {rows.map((r) => (
           <div key={r.label} className={`cmp-row ${r.pct >= 80 ? "strong" : r.pct < 50 ? "weak" : ""}`}>
             <div className="cmp-side cmp-found">
               <small>{r.label}</small>
-              <p>{r.hidden ? "Kept private by the Guidance Office" : r.found || "Not recorded"}</p>
+              <p>{r.hidden ? "Hidden detail on record" : r.found || "Not recorded"}</p>
             </div>
 
             <div className="cmp-mid">
@@ -440,7 +441,7 @@ function Browse({ S, tab, setTab, openId, setOpenId, onNotMine, onSendClaim }) {
                     ["Description", selected.desc],
                   ]} />
                   <p className="sub" style={{ margin: "16px 0 0" }}>
-                    Some identifying details are kept private by the Guidance Office to verify the real owner.
+                    Some identifying details are hidden on record to verify the real owner.
                   </p>
                 </>
               ) : (
@@ -476,7 +477,7 @@ function Browse({ S, tab, setTab, openId, setOpenId, onNotMine, onSendClaim }) {
                     })
                   ) : (
                     <p className="sub" style={{ margin: "8px 0 0" }}>
-                      Nothing similar has been turned in yet. Check back after Guidance logs new items.
+                      No similar found item has been logged yet.
                     </p>
                   )}
                 </>
@@ -494,8 +495,8 @@ function MyReports({ S, go }) {
   if (!mine.length)
     return (
       <div className="empty">
-        You have not reported anything yet.
-        <div><button className="btn sm" onClick={() => go("report")}>Report a lost item</button></div>
+        No lost reports yet.
+        <div><button className="btn sm" onClick={() => go("report")}>Log a lost report</button></div>
       </div>
     );
   return (
@@ -528,7 +529,7 @@ function MyReports({ S, go }) {
                 <div><button className="btn sm ghost" style={{ margin: 0 }} onClick={() => go("browse", "lost", l.id)}>See details and why it matches</button></div>
               </div>
             ) : (
-              <p className="sub" style={{ margin: 0 }}>Nothing similar has been turned in yet. Check back after Guidance logs new items.</p>
+              <p className="sub" style={{ margin: 0 }}>No similar found item has been logged yet.</p>
             )}
           </section>
         );
@@ -557,7 +558,7 @@ function LostForm({ onSubmitLost, toast }) {
     });
 
   const submit = () => {
-    if (!form.item.trim()) return toast("Tell us what item you lost.");
+    if (!form.item.trim()) return toast("Enter the item that was lost.");
     const { extra, ...rest } = form;
     onSubmitLost({ ...rest, contents: details });
     setForm(EMPTY_LOST);
@@ -566,7 +567,7 @@ function LostForm({ onSubmitLost, toast }) {
 
   return (
     <section className="card" style={{ maxWidth: 680 }}>
-      <Field id="q-item" label="What item did you lose?" placeholder="e.g. black umbrella" value={form.item} onChange={onItem} />
+      <Field id="q-item" label="Item lost" placeholder="e.g. black umbrella" value={form.item} onChange={onItem} />
       {form.item.trim() && (
         <p className="sub" style={{ margin: "8px 0 0" }}>
           <span className={`tag ${typeKey ? "ok" : ""}`}>{typeKey ? `Detected: ${type.title}` : "Item not recognised"}</span>{" "}
@@ -579,10 +580,10 @@ function LostForm({ onSubmitLost, toast }) {
         {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
       </select>
       <div className="cols">
-<div><Field id="q-color" label="What color is it?" placeholder="e.g. black" value={form.color} onChange={set("color")} /></div>
-<div><Field id="q-brand" label="What brand?" placeholder="e.g. Totes" value={form.brand} onChange={set("brand")} /></div>
+<div><Field id="q-color" label="Color" placeholder="e.g. black" value={form.color} onChange={set("color")} /></div>
+<div><Field id="q-brand" label="Brand" placeholder="e.g. Totes" value={form.brand} onChange={set("brand")} /></div>
       </div>
-      <Field id="q-where" label="Where did you lose it?" placeholder="e.g. library" value={form.where} onChange={set("where")} />
+      <Field id="q-where" label="Where it was lost" placeholder="e.g. library" value={form.where} onChange={set("where")} />
 
       <h4 className="eyebrow" style={{ marginTop: 24 }}>{type.title} details</h4>
       <div className="cols">
@@ -603,9 +604,9 @@ function LostForm({ onSubmitLost, toast }) {
         )}
       </div>
 
-      <Field id="q-looks" label="Anything else about how it looks?" placeholder="Optional: size, marks, condition" textarea value={form.looks} onChange={set("looks")} />
+      <Field id="q-looks" label="Other details about its look" placeholder="Optional: size, marks, condition" textarea value={form.looks} onChange={set("looks")} />
 
-      <label htmlFor="q-details">Summary of your item</label>
+      <label htmlFor="q-details">Summary of the item</label>
       <textarea
         id="q-details"
         placeholder="Written automatically as you fill in the details above"
@@ -616,7 +617,7 @@ function LostForm({ onSubmitLost, toast }) {
       <p className="sub" style={{ margin: "6px 0 0" }}>Written automatically. You can still edit it.</p>
       {manual && <button className="btn sm ghost" onClick={() => setManual(false)}>Regenerate from details</button>}
 
-      <button className="btn" onClick={submit}>Submit lost item details</button>
+      <button className="btn" onClick={submit}>Save lost report</button>
     </section>
   );
 }
@@ -822,6 +823,75 @@ function EnginePage({ S, log, onThreshold, onReset }) {
   );
 }
 
+
+/* =====================  HELP  ===================== */
+const HELP_BUTTONS = [
+  ["Dashboard", "A summary of lost reports, found items, possible matches, and items returned."],
+  ["Browse reports", "View all found items (filter by Available, Claimed, or Released) and all lost reports."],
+  ["Lost reports", "Track each lost report and the claims recorded for it."],
+  ["Claims to review", "Check each claimant's proof, then approve or reject the claim."],
+  ["Log found item", "Record an item that was turned in to the Guidance Office."],
+  ["Matching engine", "Set how strict matching is and test how the algorithm compares words."],
+];
+
+const HELP_STEPS = [
+  ["Levenshtein distance", "Counts how many letters must change to turn one word into another. Fewer changes means more similar, so a typo like \"walet\" still matches \"wallet\"."],
+  ["Compare the details", "Item, color, brand, description, and place are scored one by one, then combined into a single percentage. Item counts the most."],
+  ["Show the results", "60% or higher appears as a possible match. 80% or higher allows a claim to be recorded."],
+];
+
+function HelpModal({ onClose }) {
+  const [tab, setTab] = useState("buttons");
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  return (
+    <div className="modal-scrim" onClick={onClose}>
+      <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <span className="kind found">Help</span>
+            <h2>How the system works</h2>
+          </div>
+          <button className="modal-x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="modal-body">
+          <div className="tabs" role="group" aria-label="Help topics" style={{ marginTop: 16 }}>
+            <button className={tab === "buttons" ? "on" : ""} onClick={() => setTab("buttons")}>Sidebar</button>
+            <button className={tab === "algo" ? "on" : ""} onClick={() => setTab("algo")}>Algorithm</button>
+          </div>
+
+          {tab === "buttons" ? (
+            <ul className="help-list">
+              {HELP_BUTTONS.map(([name, text]) => (
+                <li key={name}><b>{name}</b><p>{text}</p></li>
+              ))}
+            </ul>
+          ) : (
+            <>
+              <p className="sub" style={{ margin: "14px 0 0" }}>
+                Matching uses the Levenshtein distance algorithm to give each found item a percentage.
+              </p>
+              <ol className="help-list help-steps">
+                {HELP_STEPS.map(([name, text]) => (
+                  <li key={name}><b>{name}</b><p>{text}</p></li>
+                ))}
+              </ol>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* =====================  APP  ===================== */
 export default function App() {
   const [S, setS] = useState(load);
@@ -829,6 +899,7 @@ export default function App() {
   const [browseTab, setBrowseTab] = useState("found");
   const [openId, setOpenId] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [log, setLog] = useState([]);
   const [msg, setMsg] = useState("");
   const [dark, setDark] = useState(() => {
@@ -990,6 +1061,9 @@ export default function App() {
             <span className="cur">{HEADS[page][0]}</span>
           </div>
           <div className="top-actions">
+            <button className="theme-btn" onClick={() => setHelpOpen(true)} aria-label="Help" title="Help">
+              <Icon name="help" />
+            </button>
             <button
               className="theme-btn"
               onClick={() => setDark((d) => !d)}
@@ -998,7 +1072,7 @@ export default function App() {
             >
               <Icon name={dark ? "sun" : "moon"} />
             </button>
-            <button className="btn-primary" aria-label="New report" onClick={() => go("report")}><Icon name="filePlus" size={19} /> <span className="btn-label">New report</span></button>
+            <button className="btn-primary" aria-label="Log lost report" onClick={() => go("report")}><Icon name="filePlus" size={19} /> <span className="btn-label">Log lost report</span></button>
           </div>
         </header>
 
@@ -1007,6 +1081,8 @@ export default function App() {
           {VIEWS[page]}
         </main>
       </div>
+
+      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
 
       <div id="toast" role="status" className={msg ? "show" : ""}>{msg}</div>
     </div>
