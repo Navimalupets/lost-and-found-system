@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { detectType, TYPES, GENERIC, buildOther } from "./itemTypes";
 import { lev, runMatch, sameness, keywords, textSim, explain } from "./matching";
 
@@ -171,58 +172,81 @@ function ClaimZone({ lost, found, claim, canClaim, onNotMine, onSendClaim }) {
   const set = (k) => (v) => setWho((w) => ({ ...w, [k]: v }));
   const p = `${lost.id}-${found.id}`;
 
+  useEffect(() => {
+    if (!claiming) return;
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); setClaiming(false); } };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [claiming]);
+
   return (
     <div className="claim-zone">
       {claim ? (
         <>
-          <p style={{ margin: 0 }}>Your claim: <Badge s={claim.status} /></p>
+          <p style={{ margin: 0 }}>Claim status: <Badge s={claim.status} /></p>
           {claim.claimer && <p className="sub" style={{ margin: "8px 0 0" }}>Submitted by {claim.claimer.name} ({claim.claimer.sid})</p>}
           {claim.note && <p className="sub" style={{ margin: "8px 0 0" }}>{claim.note}</p>}
-          {claim.status === "Approved" && <p style={{ margin: "8px 0 0" }}><b>Visit the Guidance Office to receive your item.</b></p>}
-          {claim.status === "Released" && <p style={{ margin: "8px 0 0" }}><b>Item received. Case closed.</b></p>}
+          {claim.status === "Approved" && <p style={{ margin: "8px 0 0" }}><b>Approved. Ready for release to the owner.</b></p>}
+          {claim.status === "Released" && <p style={{ margin: "8px 0 0" }}><b>Released to the owner. Case closed.</b></p>}
         </>
       ) : found.status !== "Available" ? (
-        <p style={{ margin: 0 }}><Badge s="Claimed" /> This item was claimed by another student.</p>
+        <p style={{ margin: 0 }}><Badge s="Claimed" /> This item has already been claimed</p>
       ) : (
         <>
           {canClaim ? (
-            !claiming && <button className="btn sm" onClick={() => setClaiming(true)}>This is mine – submit claim</button>
+            !claiming && <button className="btn sm" onClick={() => setClaiming(true)}>Record claim</button>
           ) : (
             <p className="sub" style={{ margin: "0 0 4px" }}>
-              This is only a similar item. Claiming opens at {CLAIM_MIN}% or higher. Visit the Guidance Office if you think it is yours.
+              Match is below {CLAIM_MIN}%. Verify with the owner before recording a claim.
             </p>
           )}
-          {!claiming && <button className="btn sm ghost" onClick={() => onNotMine(lost.id, found.id)}>Not mine</button>}
+          {!claiming && <button className="btn sm ghost" onClick={() => onNotMine(lost.id, found.id)}>Not a match</button>}
 
-          {claiming && (
-            <div>
-              <h4 className="eyebrow" style={{ marginTop: 6 }}>Claimant information</h4>
-              <Field id={`cn-${p}`} label="Full name" placeholder="Last name, First name M.I." value={who.name} onChange={set("name")} />
-              <div className="cols">
-                <div><Field id={`cs-${p}`} label="Student ID" value={who.sid} onChange={set("sid")} /></div>
-                <div><Field id={`cc-${p}`} label="Course" placeholder="e.g. BSIT" value={who.course} onChange={set("course")} /></div>
-              </div>
-              <div className="cols">
-                <div>
-                  <label htmlFor={`cy-${p}`}>Year level</label>
-                  <select id={`cy-${p}`} value={who.year} onChange={(e) => set("year")(e.target.value)}>
-                    {YEAR_LEVELS.map((y) => <option key={y}>{y}</option>)}
-                  </select>
+           {claiming && createPortal(
+            <div className="claim-scrim" onClick={(e) => { e.stopPropagation(); setClaiming(false); }}>
+              <div className="claim-panel" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+                <div className="claim-panel-head">
+                  <div>
+                    <span className="kind found">Found</span>
+                    <h3>{found.name}</h3>
+                  </div>
+                  <button className="modal-x" onClick={() => setClaiming(false)} aria-label="Close">×</button>
                 </div>
-                <div><Field id={`cx-${p}`} label="Section" value={who.section} onChange={set("section")} /></div>
-              </div>
-              <Field id={`cr-${p}`} label="Room number" value={who.room} onChange={set("room")} />
 
-              <label htmlFor={`pf-${p}`}>How can you prove it is yours?</label>
-              <textarea
-                id={`pf-${p}`}
-                value={proof}
-                placeholder="Describe marks, contents, or details only the owner would know"
-                onChange={(e) => setProof(e.target.value)}
-              />
-              <button className="btn sm" onClick={() => onSendClaim(lost.id, found.id, proof, who)}>Send claim</button>
-              <button className="btn sm ghost" onClick={() => setClaiming(false)}>Cancel</button>
-            </div>
+                <div className="claim-panel-body">
+                  <h4 className="eyebrow" style={{ marginTop: 14 }}>Claimant information</h4>
+                  <Field id={`cn-${p}`} label="Full name" placeholder="Last name, First name M.I." value={who.name} onChange={set("name")} />
+                  <div className="cols">
+                    <div><Field id={`cs-${p}`} label="Student ID" value={who.sid} onChange={set("sid")} /></div>
+                    <div><Field id={`cc-${p}`} label="Course" placeholder="e.g. BSIT" value={who.course} onChange={set("course")} /></div>
+                  </div>
+                  <div className="cols">
+                    <div>
+                      <label htmlFor={`cy-${p}`}>Year level</label>
+                      <select id={`cy-${p}`} value={who.year} onChange={(e) => set("year")(e.target.value)}>
+                        {YEAR_LEVELS.map((y) => <option key={y}>{y}</option>)}
+                      </select>
+                    </div>
+                    <div><Field id={`cx-${p}`} label="Section" value={who.section} onChange={set("section")} /></div>
+                  </div>
+                  <Field id={`cr-${p}`} label="Room number" value={who.room} onChange={set("room")} />
+
+                  <label htmlFor={`pf-${p}`}>Proof of ownership</label>
+                  <textarea
+                    id={`pf-${p}`}
+                    value={proof}
+                    placeholder="Describe marks, contents, or details only the owner would know"
+                    onChange={(e) => setProof(e.target.value)}
+                  />
+                </div>
+
+                <div className="claim-panel-foot">
+                  <button className="btn sm" style={{ margin: 0 }} onClick={() => onSendClaim(lost.id, found.id, proof, who)}>Save claim</button>
+                  <button className="btn sm ghost" style={{ margin: 0 }} onClick={() => setClaiming(false)}>Cancel</button>
+                </div>
+              </div>
+            </div>,
+            document.body
           )}
         </>
       )}
@@ -261,25 +285,39 @@ function MatchBlock({ lost, found, score, rank, claim, onNotMine, onSendClaim })
           {chips.map((c) => <span className="chip" key={c}>{c}</span>)}
         </div>
       )}
-      <ul className="why">
+      <div className="compare">
+        <div className="cmp-head">
+          <div className="cmp-title cmp-title-found"><span className="kind found">Found item</span></div>
+          <div className="cmp-mid-title">Match</div>
+          <div className="cmp-title cmp-title-lost"><span className="kind lost">Your report</span></div>
+        </div>
         {rows.map((r) => (
-          <li key={r.label} className={r.pct >= 80 ? "strong" : ""}>
-            <div className="why-head"><span>{r.label}</span><span>{r.pct}%</span></div>
-            {r.hidden ? (
-              <p>{r.pct >= 60 ? "Matches the hidden details on record." : "Does not clearly match the hidden details on record."}</p>
-            ) : (
-              <>
-                <p>You wrote “{r.lost}” · Found: “{r.found || "not recorded"}”</p>
-                <p>
-                  {r.shared.length
-                    ? <>Common: {r.shared.map((w) => <mark key={w}>{w}</mark>)}</>
-                    : "No common word."}
-                </p>
-              </>
-            )}
-          </li>
+          <div key={r.label} className={`cmp-row ${r.pct >= 80 ? "strong" : r.pct < 50 ? "weak" : ""}`}>
+            <div className="cmp-side cmp-found">
+              <small>{r.label}</small>
+              <p>{r.hidden ? "Kept private by the Guidance Office" : r.found || "Not recorded"}</p>
+            </div>
+
+            <div className="cmp-mid">
+              <b>{r.pct}%</b>
+              {r.hidden ? (
+                <em>{r.pct >= 60 ? "Matches record" : "No clear match"}</em>
+              ) : r.shared.length ? (
+                <div className="cmp-common">
+                  {r.shared.map((w) => <mark key={w}>{w}</mark>)}
+                </div>
+              ) : (
+                <em>No common word</em>
+              )}
+            </div>
+
+            <div className="cmp-side cmp-lost">
+              <small>{r.label}</small>
+              <p>{r.lost || "Not provided"}</p>
+            </div>
+          </div>
         ))}
-      </ul>
+      </div>
 
       <ClaimZone lost={lost} found={found} claim={claim} canClaim={canClaim} onNotMine={onNotMine} onSendClaim={onSendClaim} />
     </div>
@@ -299,6 +337,9 @@ function Facts({ rows }) {
 function Browse({ S, tab, setTab, openId, setOpenId, onNotMine, onSendClaim }) {
   const close = () => setOpenId(null);
   const switchTab = (t) => { setTab(t); setOpenId(null); };
+  const [statusFilter, setStatusFilter] = useState("Available");
+  const FILTERS = [["Available", "Available"], ["Claimed", "Claimed"], ["Released", "Released"]];
+  const foundList = S.found.filter((f) => f.status === statusFilter);
   const keyOpen = (id) => (e) => {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenId(id); }
   };
@@ -325,9 +366,19 @@ function Browse({ S, tab, setTab, openId, setOpenId, onNotMine, onSendClaim }) {
         <button className={tab === "lost" ? "on" : ""} onClick={() => switchTab("lost")}>Lost reports ({S.lost.length})</button>
       </div>
 
+      {tab === "found" && (
+        <div className="filters" role="group" aria-label="Filter found items">
+          {FILTERS.map(([val, label]) => (
+            <button key={val} className={statusFilter === val ? "on" : ""} onClick={() => setStatusFilter(val)}>
+              {label} ({S.found.filter((f) => f.status === val).length})
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="grid2" style={{ marginTop: 14 }}>
         {tab === "found"
-          ? S.found.map((f, i) => (
+          ? foundList.length ? foundList.map((f, i) => (
               <div className="item browse-card" key={f.id} style={{ animationDelay: `${i * 50}ms` }}>
                 <div className="card-top" role="button" tabIndex={0} onClick={() => setOpenId(f.id)} onKeyDown={keyOpen(f.id)}>
                   <div className="row">
@@ -337,10 +388,11 @@ function Browse({ S, tab, setTab, openId, setOpenId, onNotMine, onSendClaim }) {
                   <h3 style={{ marginTop: 8 }}>{f.name}</h3>
                   <p>{[f.cat, f.color, f.brand].filter(Boolean).join(" · ")}</p>
                   <p>Found at {f.loc}, {fmtDate(f.dt)}</p>
-                  <Icon name="arrow" className="go" />
+                    <Icon name="arrow" className="go" />
                 </div>
               </div>
             ))
+            : <div className="empty">No {statusFilter.toLowerCase()} items.</div>
           : S.lost.length
           ? S.lost.slice().reverse().map((l, i) => {
               const best = l.matches[0];
@@ -588,17 +640,17 @@ function ClaimCard({ claim, S, onApprove, onReject, onRelease }) {
           Section: {claim.claimer.section} · Room: {claim.claimer.room}
         </div>
       )}
-      <div className="proof"><b>Student reported</b>{l.item}, {l.color}, {l.brand}: {l.looks}</div>
+      <div className="proof"><b>Lost report on file</b>{l.item}, {l.color}, {l.brand}: {l.looks}</div>
       <div className="proof"><b>Proof of ownership</b>{claim.proof}</div>
       <div className="proof"><b>Hidden details on record</b>{f.other || "None recorded"}</div>
       {claim.status === "Pending" ? (
         <>
-          <p style={{ margin: "12px 0 0", fontWeight: 700, color: "var(--ink)" }}>Owner verified?</p>
-          <button className="btn sm ok" onClick={() => onApprove(claim.id)}>Yes – approve claim</button>
-          <button className="btn sm bad" onClick={() => onReject(claim.id)}>No – reject claim</button>
+          <p style={{ margin: "12px 0 0", fontWeight: 700, color: "var(--ink)" }}>Verify ownership</p>
+          <button className="btn sm ok" onClick={() => onApprove(claim.id)}>Approve claim</button>
+          <button className="btn sm bad" onClick={() => onReject(claim.id)}>Reject claim</button>
         </>
       ) : (
-        <button className="btn sm" onClick={() => onRelease(claim.id)}>Release item</button>
+        <button className="btn sm" onClick={() => onRelease(claim.id)}>Mark as released</button>
       )}
     </div>
   );
@@ -840,15 +892,15 @@ export default function App() {
 
   const sendClaim = (lostId, foundId, proof, who) => {
     const missing = ["name", "sid", "course", "section", "room"].some((k) => !who[k].trim());
-    if (missing) return toast("Please fill in all your information.");
-    if (!proof.trim()) return toast("Add your proof of ownership.");
+    if (missing) return toast("Fill in all claimant information.");
+    if (!proof.trim()) return toast("Add the claimant's proof of ownership.");
     const claimer = Object.fromEntries(Object.entries(who).map(([k, v]) => [k, v.trim()]));
     setS((p) => ({
       ...p,
-      claims: [...p.claims, { id: p.nid, lostId, foundId, claimer, proof: proof.trim(), status: "Pending", note: "Waiting for Guidance to review." }],
+      claims: [...p.claims, { id: p.nid, lostId, foundId, claimer, proof: proof.trim(), status: "Pending", note: "Awaiting verification." }],
       nid: p.nid + 1,
     }));
-    toast("Claim submitted.");
+    toast("Claim recorded.");
   };
 
   const saveFound = (form) => {
@@ -868,7 +920,7 @@ export default function App() {
       };
     });
 
-  const approve = (id) => { updateClaim(id, { status: "Approved", note: "Ownership verified. Collect your item at the Guidance Office." }, "Claimed"); toast("Claim approved."); };
+  const approve = (id) => { updateClaim(id, { status: "Approved", note: "Ownership verified. Ready for release." }, "Claimed"); toast("Claim approved."); };
   const reject = (id) => { updateClaim(id, { status: "Rejected", note: "Ownership could not be verified." }); toast("Claim rejected."); };
   const release = (id) => { updateClaim(id, { status: "Released", note: "" }, "Released"); toast("Item released to owner."); };
 
