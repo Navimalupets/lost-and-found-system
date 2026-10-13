@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { detectType, TYPES, GENERIC, buildOther } from "./itemTypes";
-import { lev, runMatch, sameness, keywords, textSim, explain } from "./matching";
+import { lev, runMatch, sameness, keywords, textSim, explain, why, proofScore } from "./matching";
 
 /* =====================  DATA  ===================== */
 const KEY = "lf-system-v2";
-const THRESHOLD = 60;   // minimum to appear as a possible match
-const CLAIM_MIN = 80;   // minimum to be allowed to submit a claim
+const THRESHOLD = 70;   // minimum to appear as a possible match
+const CLAIM_MIN = 85;   // lowest possible "verified" score
+// the stricter the slider, the stricter "verified" gets too
+const claimMinFor = (thr) => Math.min(99, Math.max(CLAIM_MIN, thr + 15));   // minimum to be allowed to submit a claim
 const YEAR_LEVELS = ["1st year", "2nd year", "3rd year", "4th year"];
 const EMPTY_CLAIMER = { name: "", sid: "", course: "", year: "1st year", section: "", room: "" };
 const CATEGORIES = ["Electronics", "Wallets & bags", "Accessories", "Clothing", "Personal items", "Books & supplies", "Other"];
@@ -45,11 +47,22 @@ const allPairs = (S) =>
     .filter((p) => p.found)
     .sort((a, b) => b.score - a.score);
 
+// recompute the matches of one lost report with the current strictness.
+// keeps matches that already have a claim, and skips ones marked "Not a match"
+const rematch = (l, found, claims, thr) => {
+  const dis = l.dismissed || [];
+  const keep = l.matches.filter((m) => claims.some((c) => c.lostId === l.id && c.foundId === m.foundId));
+  const fresh = runMatch(l, found.filter((f) => !dis.includes(f.id)), thr).matches.filter(
+    (m) => !keep.some((k) => k.foundId === m.foundId)
+  );
+  return [...keep, ...fresh].sort((a, b) => b.score - a.score);
+};
+
 /* =====================  NAV CONFIG  ===================== */
 const NAV = [
   { section: "Records", area: "Records", items: [["overview", "Dashboard", "home"], ["browse", "Browse reports", "search"], ["mine", "Lost reports", "filePlus"]] },
   { section: "Guidance office", area: "Guidance office", items: [["claims", "Claims to review", "check"], ["log", "Log found item", "box"]] },
-  { section: "System", area: "System", items: [["engine", "Matching engine", "sliders"]] },
+  { section: "System", area: "System", items: [["engine", "Matching tester", "sliders"]] },
 ];
 
 const HEADS = {
@@ -59,7 +72,7 @@ const HEADS = {
   report: ["Log a lost report", "Fill in the details. The system compares them with found items."],
   claims: ["Claims to review", "Compare each student's proof with the hidden details on record."],
   log: ["Log found item", "Record an item that was brought to the Guidance Office."],
-  engine: ["Matching engine", "See how similarity is calculated and adjust how strict matching is."],
+  engine: ["Matching tester", "Type a lost item and a found item to see how the system compares them. Nothing is saved."],
 };
 
 const areaOf = (page) => NAV.find((n) => n.items.some(([id]) => id === page))?.area ?? "Records";
@@ -166,7 +179,7 @@ function Overview({ S, go }) {
 }
 
 /* =====================  BROWSE  ===================== */
-function ClaimZone({ lost, found, claim, canClaim, onNotMine, onSendClaim }) {
+function ClaimZone({ lost, found, claim, canClaim, claimMin, onNotMine, onSendClaim }) {
   const [claiming, setClaiming] = useState(false);
   const [proof, setProof] = useState("");
   const [who, setWho] = useState(EMPTY_CLAIMER);
@@ -198,7 +211,7 @@ function ClaimZone({ lost, found, claim, canClaim, onNotMine, onSendClaim }) {
             !claiming && <button className="btn sm" onClick={() => setClaiming(true)}>Record claim</button>
           ) : (
             <p className="sub" style={{ margin: "0 0 4px" }}>
-              Match is below {CLAIM_MIN}%. Verify with the owner before recording a claim.
+              Match is below {claimMin}%. Verify with the owner before recording a claim.
             </p>
           )}
           {!claiming && <button className="btn sm ghost" onClick={() => onNotMine(lost.id, found.id)}>Not a match</button>}
@@ -255,12 +268,12 @@ function ClaimZone({ lost, found, claim, canClaim, onNotMine, onSendClaim }) {
   );
 }
 
-function MatchBlock({ lost, found, score, rank, claim, onNotMine, onSendClaim }) {
+function MatchBlock({ lost, found, score, rank, claim, claimMin, onNotMine, onSendClaim }) {
   const rows = explain(lost, found);
   const chips = sameness(lost, found);
   const strong = rows.filter((r) => r.pct >= 80).map((r) => r.label.toLowerCase());
   const weak = rows.filter((r) => r.pct < 50).map((r) => r.label.toLowerCase());
-  const canClaim = score >= CLAIM_MIN;
+  const canClaim = score >= claimMin;
   return (
     <div className={`match-block ${canClaim ? "best" : ""}`}>
       <div className="match-top">
@@ -271,7 +284,7 @@ function MatchBlock({ lost, found, score, rank, claim, onNotMine, onSendClaim })
         </div>
         <div className="match-score">
           <b>{score}%</b>
-          <span className={`tag ${canClaim ? "ok" : ""}`}>{canClaim ? "Strong match" : "Similar item"}</span>
+          <span className={`tag ${canClaim ? "ok" : ""}`}>{canClaim ? "Verified match" : "Similar item"}</span>
         </div>
       </div>
       <div className="bar"><i style={{ width: `${score}%` }} /></div>
@@ -281,9 +294,10 @@ function MatchBlock({ lost, found, score, rank, claim, onNotMine, onSendClaim })
         {strong.length ? `Strong match: ${strong.join(", ")}.` : "No strongly matching detail."}
         {weak.length ? ` Different: ${weak.join(", ")}.` : ""}
       </p>
-      {chips.length > 0 && (
+      {(chips.length > 0 || why(lost, found).length > 0) && (
         <div className="pair-meta" style={{ margin: "10px 0 0" }}>
           {chips.map((c) => <span className="chip" key={c}>{c}</span>)}
+          {why(lost, found).map((x) => <span className="chip flag" key={x}>{x}</span>)}
         </div>
       )}
       <div className="compare">
@@ -320,7 +334,7 @@ function MatchBlock({ lost, found, score, rank, claim, onNotMine, onSendClaim })
         ))}
       </div>
 
-      <ClaimZone lost={lost} found={found} claim={claim} canClaim={canClaim} onNotMine={onNotMine} onSendClaim={onSendClaim} />
+      <ClaimZone lost={lost} found={found} claim={claim} canClaim={canClaim} claimMin={claimMin} onNotMine={onNotMine} onSendClaim={onSendClaim} />
     </div>
   );
 }
@@ -468,7 +482,8 @@ function Browse({ S, tab, setTab, openId, setOpenId, onNotMine, onSendClaim }) {
                           lost={selected}
                           found={f}
                           score={m.score}
-                          rank={i}
+                            rank={i}
+                          claimMin={claimMinFor(S.thr)}
                           claim={S.claims.find((c) => c.lostId === selected.id && c.foundId === f.id)}
                           onNotMine={onNotMine}
                           onSendClaim={onSendClaim}
@@ -560,7 +575,8 @@ function LostForm({ onSubmitLost, toast }) {
   const submit = () => {
     if (!form.item.trim()) return toast("Enter the item that was lost.");
     const { extra, ...rest } = form;
-    onSubmitLost({ ...rest, contents: details });
+    const xl = Object.fromEntries(type.fields.map((fd) => [fd.k, fd.label]));
+    onSubmitLost({ ...rest, extra, xl, contents: details });
     setForm(EMPTY_LOST);
     setManual(false);
   };
@@ -630,6 +646,7 @@ function ReportPage({ onSubmitLost, toast }) {
 function ClaimCard({ claim, S, onApprove, onReject, onRelease }) {
   const f = S.found.find((x) => x.id === claim.foundId);
   const l = S.lost.find((x) => x.id === claim.lostId);
+  const proofPct = proofScore(claim.proof, f);
   return (
     <div className="item">
       <div className="row"><h3>{f.name}</h3><Badge s={claim.status} /></div>
@@ -642,7 +659,14 @@ function ClaimCard({ claim, S, onApprove, onReject, onRelease }) {
         </div>
       )}
       <div className="proof"><b>Lost report on file</b>{l.item}, {l.color}, {l.brand}: {l.looks}</div>
-      <div className="proof"><b>Proof of ownership</b>{claim.proof}</div>
+      <div className="proof">
+        <b>Proof of ownership</b>{claim.proof}
+        <div style={{ marginTop: 8 }}>
+          {proofPct === null
+            ? <span className="tag">Not enough details to compare</span>
+            : <span className={`tag ${proofPct >= claimMinFor(S.thr) ? "ok" : proofPct >= 50 ? "warn" : "bad"}`}>{proofPct}% of the proof matches the hidden details</span>}
+        </div>
+      </div>
       <div className="proof"><b>Hidden details on record</b>{f.other || "None recorded"}</div>
       {claim.status === "Pending" ? (
         <>
@@ -692,7 +716,8 @@ function LogPage({ onSaveFound, toast }) {
   const save = () => {
     if (!form.name.trim()) return toast("Enter the item name.");
     const { extra, ...rest } = form;
-    onSaveFound({ ...rest, other });
+    const xl = Object.fromEntries(type.fields.map((fd) => [fd.k, fd.label]));
+    onSaveFound({ ...rest, extra, xl, other });
     setForm(EMPTY_FOUND);
     setManual(false);
   };
@@ -763,7 +788,308 @@ function LogPage({ onSaveFound, toast }) {
 }
 
 /* =====================  SYSTEM  ===================== */
-function EnginePage({ S, log, onThreshold, onReset }) {
+/* =====================  MATCHING TESTER  ===================== */
+const SIZE_OPTS = ["small", "medium", "large"];
+const COND_OPTS = ["like new", "worn", "scratched", "cracked", "dented", "torn", "faded"];
+const fText = (k, label, ph = "") => ({ k, label, ph });
+const fPick = (k, label, opts) => ({ k, label, opts });
+
+// details shown when the item name is not recognised, based on the chosen category
+const CAT_FIELDS = {
+  Electronics: [
+    fText("model", "Model", "e.g. Galaxy A14"),
+    fText("case", "Case or cover", "e.g. clear silicone case"),
+    fPick("condition", "Condition", COND_OPTS),
+    fText("marks", "Stickers or marks", "e.g. a cat sticker on the back"),
+  ],
+  "Wallets & bags": [
+    fPick("size", "Size", SIZE_OPTS),
+    fText("material", "Material", "e.g. leather"),
+    fPick("condition", "Condition", COND_OPTS),
+    fText("contents", "Contents", "e.g. 2 student IDs"),
+    fText("marks", "Marks, keychain or initials", "e.g. a star-shaped keychain"),
+  ],
+  Accessories: [
+    fText("material", "Material", "e.g. metal"),
+    fPick("condition", "Condition", COND_OPTS),
+    fText("marks", "Marks or engraving", "e.g. initials “MR”"),
+  ],
+  Clothing: [
+    fPick("size", "Size", SIZE_OPTS),
+    fText("kind", "Type", "e.g. hoodie"),
+    fPick("condition", "Condition", COND_OPTS),
+    fText("owner", "Name written on it", "e.g. Juan D."),
+  ],
+  "Personal items": [
+    fText("material", "Material", "e.g. plastic"),
+    fPick("condition", "Condition", COND_OPTS),
+    fText("marks", "Stickers or marks", "e.g. a cat sticker on the lid"),
+  ],
+  "Books & supplies": [
+    fText("subject", "Title or subject", "e.g. Math"),
+    fText("owner", "Name written on it", "e.g. Juan D."),
+    fPick("condition", "Condition", COND_OPTS),
+    fText("marks", "Marks or stickers", "e.g. initials “MR”"),
+  ],
+};
+
+// which details to show: the detected item type (if it fits the category), else the category's details
+const resolveType = (name, cat) => {
+  const k = detectType(name);
+  if (k && TYPES[k].cat === cat) return { title: TYPES[k].title, fields: TYPES[k].fields, detected: true };
+  if (CAT_FIELDS[cat]) return { title: cat, fields: CAT_FIELDS[cat], detected: false };
+  return { title: "Item", fields: GENERIC.fields, detected: false };
+};
+
+// only keep the answers that belong to the details currently shown
+const sideRecord = (d) => {
+  const t = resolveType(d.name, d.cat);
+  return {
+    type: t,
+    extra: Object.fromEntries(t.fields.map((fd) => [fd.k, d.extra[fd.k] || ""])),
+    xl: Object.fromEntries(t.fields.map((fd) => [fd.k, fd.label])),
+  };
+};
+
+const EMPTY_SIDE = { name: "", cat: "Other", color: "", brand: "", place: "", desc: "", extra: {} };
+const WEIGHTS = { Item: 25, Color: 15, Location: 15, Brand: 10, Description: 10 };
+
+// random examples: some match closely, some only partly, some do not match
+const EXAMPLES = [
+  {
+    note: "Same wallet. Only the spelling of the name is different.",
+    lost: { name: "Red walet", cat: "Wallets & bags", color: "Red", brand: "Fossil", place: "Canteen", desc: "Small leather wallet",
+      extra: { size: "small", material: "leather", condition: "worn", ids: "2 student IDs", marks: "initials MR inside" } },
+    found: { name: "Red Wallet", cat: "Wallets & bags", color: "Red", brand: "Fossil", place: "Canteen", desc: "Small leather wallet with a zipper",
+      extra: { size: "small", material: "leather", condition: "worn", ids: "2 student IDs", marks: "initials MR inside" } },
+  },
+  {
+    note: "Same umbrella. The place is written a little differently and the found record has one extra detail.",
+    lost: { name: "Black umbrlla", cat: "Personal items", color: "Black", brand: "Totes", place: "Library", desc: "Big foldable umbrella",
+      extra: { kind: "folding", size: "large", handle: "wooden", marks: "initials MR on the strap" } },
+    found: { name: "Black Umbrella", cat: "Personal items", color: "Black", brand: "Totes", place: "Library entrance", desc: "Large folding umbrella with a wooden handle",
+      extra: { kind: "folding", size: "large", handle: "wooden", condition: "worn", marks: "initials MR on the strap" } },
+  },
+  {
+    note: "Same charger. The place is abbreviated and the description is shorter.",
+    lost: { name: "USB C wall charger", cat: "Electronics", color: "White", brand: "Anker", place: "Computer Laboratory", desc: "20W charger",
+      extra: { kind: "wall", rating: "20W", cable: "attached", condition: "scratched", marks: "scratch near the plug" } },
+    found: { name: "USB-C Wall Charger", cat: "Electronics", color: "White", brand: "Anker", place: "Computer Lab", desc: "White 20W wall charger with a short cable",
+      extra: { kind: "wall", rating: "20W", cable: "attached", condition: "scratched", marks: "scratch near the plug" } },
+  },
+  {
+    note: "Same laptop. The color is written in another spelling and the place is more specific.",
+    lost: { name: "Gray laptop", cat: "Electronics", color: "Gray", brand: "Acer", place: "Library", desc: "Acer Aspire laptop",
+      extra: { model: "Acer Aspire 5", case: "gray sleeve", lock: "a mountain", charger: "with charger" } },
+    found: { name: "Grey Laptop", cat: "Electronics", color: "Silver", brand: "Acer", place: "Library entrance", desc: "Laptop in a gray sleeve",
+      extra: { model: "Acer Aspire 5", case: "gray sleeve", lock: "mountain wallpaper", charger: "with charger" } },
+  },
+  {
+    note: "Same phone, but the place and the screen condition are different.",
+    lost: { name: "Black phone", cat: "Electronics", color: "Black", brand: "Samsung", place: "Library", desc: "Phone with a clear case",
+      extra: { model: "Galaxy A14", case: "clear silicone case", screen: "cracked", lock: "a photo of a dog" } },
+    found: { name: "Black Phone", cat: "Electronics", color: "Black", brand: "Samsung", place: "Hallway", desc: "Black phone in a clear case",
+      extra: { model: "Galaxy A14", case: "clear case", screen: "scratched", lock: "a photo of a dog" } },
+  },
+  {
+    note: "Same keys, but the place and the tag number are different.",
+    lost: { name: "Keys", cat: "Personal items", color: "Silver", brand: "", place: "Hallway", desc: "Set of keys with a star keychain",
+      extra: { count: "3", keychain: "star-shaped keychain", tag: "Locker 24" } },
+    found: { name: "Keys", cat: "Personal items", color: "Gray", brand: "", place: "Stairs", desc: "Three keys on a star keychain",
+      extra: { count: "3", keychain: "star-shaped keychain", tag: "Locker 42" } },
+  },
+  {
+    note: "Different items. Almost nothing matches.",
+    lost: { name: "Blue water bottle", cat: "Personal items", color: "Blue", brand: "Hydro Flask", place: "Gym", desc: "Insulated bottle with stickers",
+      extra: { capacity: "750 ml", material: "stainless steel", condition: "worn", marks: "cat sticker on the lid" } },
+    found: { name: "Red lunch box", cat: "Personal items", color: "Red", brand: "Lock&Lock", place: "Canteen", desc: "Plastic lunch box with a latch",
+      extra: { material: "plastic", contents: "rice and a spoon", condition: "scratched", marks: "name MR written on the lid" } },
+  },
+  {
+    note: "Same kind of bag, but the color, brand, place and details are different.",
+    lost: { name: "Black backpack", cat: "Wallets & bags", color: "Black", brand: "Jansport", place: "Library", desc: "Large backpack",
+      extra: { kind: "backpack", size: "large", condition: "worn", contents: "two notebooks", nametag: "Juan D." } },
+    found: { name: "Blue backpack", cat: "Wallets & bags", color: "Blue", brand: "Eastpak", place: "Gym", desc: "Medium backpack with a front pocket",
+      extra: { kind: "backpack", size: "medium", condition: "torn", contents: "a lunch box", nametag: "Maria S." } },
+  },
+];
+
+function TestSide({ kind, data, onChange }) {
+  const lost = kind === "lost";
+  const set = (k) => (v) => onChange({ ...data, [k]: v });
+  const setExtra = (k, v) => onChange({ ...data, extra: { ...data.extra, [k]: v } });
+  const type = resolveType(data.name, data.cat);
+
+  const onName = (v) => {
+    const k = detectType(v);
+    const cat = k ? TYPES[k].cat : data.cat;
+    onChange({ ...data, name: v, cat, extra: cat === data.cat ? data.extra : {} });
+  };
+  const onCat = (c) => onChange({ ...data, cat: c, extra: c === data.cat ? data.extra : {} });
+
+  return (
+    <section className="card">
+      <span className={`kind ${kind}`}>{lost ? "Lost item" : "Found item"}</span>
+      <Field id={`${kind}-name`} label="Item" placeholder={lost ? "e.g. red walet" : "e.g. Red Wallet"} value={data.name} onChange={onName} />
+      {data.name.trim() && (
+        <p className="sub" style={{ margin: "8px 0 0" }}>
+          <span className={`tag ${type.detected ? "ok" : ""}`}>{type.detected ? `Detected: ${type.title}` : "Item not recognised"}</span>{" "}
+          {type.detected ? "Showing the important details for this item." : `Showing ${data.cat} details.`}
+        </p>
+      )}
+
+      <label htmlFor={`${kind}-cat`}>Category</label>
+      <select id={`${kind}-cat`} value={data.cat} onChange={(e) => onCat(e.target.value)}>
+        {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+      </select>
+      <div className="cols">
+        <div><Field id={`${kind}-color`} label="Color" placeholder="e.g. red" value={data.color} onChange={set("color")} /></div>
+        <div><Field id={`${kind}-brand`} label="Brand" placeholder="e.g. Fossil" value={data.brand} onChange={set("brand")} /></div>
+      </div>
+      <Field id={`${kind}-place`} label={lost ? "Where it was lost" : "Where it was found"} placeholder="e.g. canteen" value={data.place} onChange={set("place")} />
+
+      <h4 className="eyebrow" style={{ marginTop: 24 }}>{type.title} details</h4>
+      <div className="cols">
+        {type.fields.map((fd) =>
+          fd.opts ? (
+            <div key={fd.k}>
+              <label htmlFor={`${kind}-x-${fd.k}`}>{fd.label}</label>
+              <select id={`${kind}-x-${fd.k}`} value={data.extra[fd.k] || ""} onChange={(e) => setExtra(fd.k, e.target.value)}>
+                <option value="">Select</option>
+                {fd.opts.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div key={fd.k}>
+              <Field id={`${kind}-x-${fd.k}`} label={fd.label} placeholder={fd.ph} value={data.extra[fd.k] || ""} onChange={(v) => setExtra(fd.k, v)} />
+            </div>
+          )
+        )}
+      </div>
+
+      <Field id={`${kind}-desc`} label="Description" placeholder="e.g. small leather wallet" textarea value={data.desc} onChange={set("desc")} />
+    </section>
+  );
+}
+
+function EnginePage({ S, onThreshold, onReset }) {
+  const [lostT, setLostT] = useState(EMPTY_SIDE);
+  const [foundT, setFoundT] = useState(EMPTY_SIDE);
+  const [lastEx, setLastEx] = useState(-1);
+  const [note, setNote] = useState("");
+  const ready = lostT.name.trim() && foundT.name.trim();
+
+  const loadExample = () => {
+    let i;
+    do { i = Math.floor(Math.random() * EXAMPLES.length); } while (i === lastEx && EXAMPLES.length > 1);
+    setLastEx(i);
+    setLostT({ ...EMPTY_SIDE, ...EXAMPLES[i].lost });
+    setFoundT({ ...EMPTY_SIDE, ...EXAMPLES[i].found });
+    setNote(EXAMPLES[i].note);
+  };
+  const clearAll = () => { setLostT(EMPTY_SIDE); setFoundT(EMPTY_SIDE); setNote(""); };
+
+  let out = null;
+  if (ready) {
+    const L = sideRecord(lostT), F = sideRecord(foundT);
+    const lost = { item: lostT.name, cat: lostT.cat, color: lostT.color, brand: lostT.brand, where: lostT.place, looks: lostT.desc, contents: "", extra: L.extra, xl: L.xl };
+    const found = { id: 0, status: "Available", name: foundT.name, cat: foundT.cat, color: foundT.color, brand: foundT.brand, loc: foundT.place, desc: foundT.desc, other: "", extra: F.extra, xl: F.xl };
+
+    const base = explain(lost, found);
+    const specN = base.filter((r) => r.hidden).length || 1;
+    const rows = base.map((r) => {
+      const fk = r.hidden ? Object.keys(F.xl).find((k) => F.xl[k] === r.label) : null;
+      return {
+        ...r,
+        found: r.hidden ? (fk ? F.extra[fk] : "") : r.found,
+        wt: r.hidden ? 25 / specN : WEIGHTS[r.label] || 0,
+      };
+    });
+    const wSum = rows.reduce((a, r) => a + r.wt, 0);
+    out = {
+      final: runMatch(lost, [found], 0).log[0].score,
+      raw: wSum ? Math.round(rows.reduce((a, r) => a + r.pct * r.wt, 0) / wSum) : 0,
+      rows,
+      flags: why(lost, found),
+    };
+  }
+  const verdict = !out ? null : out.final >= claimMinFor(S.thr) ? ["Verified match", "ok"] : out.final >= S.thr ? ["Possible match", "warn"] : ["No match", "bad"];
+
+  return (
+    <div className="stack">
+      <section className="card">
+        <h2>Try the matching</h2>
+        <p className="sub">
+          Type a lost item on the left and a found item on the right. The details below change with the item and category.
+          The system compares them the same way it does for real reports. Nothing is saved.
+        </p>
+        <button className="btn sm" style={{ margin: 0 }} onClick={loadExample}>Load an example</button>
+        <button className="btn sm ghost" style={{ margin: "0 0 0 8px" }} onClick={clearAll}>Clear</button>
+        {note && <p className="sub" style={{ margin: "12px 0 0" }}>Example: {note}</p>}
+      </section>
+
+      <div className="grid2">
+        <TestSide kind="lost" data={lostT} onChange={setLostT} />
+        <TestSide kind="found" data={foundT} onChange={setFoundT} />
+      </div>
+
+      <section className="card">
+        <h2>Result</h2>
+        {!out ? (
+          <div className="empty">Type the item name on both sides to see the result.</div>
+        ) : (
+          <>
+            <div className="row">
+              <b style={{ fontSize: 44, lineHeight: 1, color: "var(--ink)" }}>{out.final}%</b>
+              <span className={`tag ${verdict[1]}`}>{verdict[0]}</span>
+            </div>
+            <div className="bar"><i style={{ width: `${out.final}%` }} /></div>
+            <p className="sub" style={{ margin: "8px 0 0" }}>
+              {claimMinFor(S.thr)}% or higher: verified match · {S.thr}% or higher: possible match · lower: no match
+            </p>
+
+            <p style={{ margin: "14px 0 0" }}>
+              Score from the details: <b>{out.raw}%</b>
+              {out.final < out.raw && <> · Lowered to <b>{out.final}%</b> because of the mistakes below.</>}
+            </p>
+            {out.flags.length > 0 && (
+              <div className="pair-meta" style={{ margin: "10px 0 0" }}>
+                {out.flags.map((x) => <span className="chip flag" key={x}>{x}</span>)}
+              </div>
+            )}
+
+            <ul className="why">
+              {out.rows.map((r) => {
+                const wt = Number(r.wt.toFixed(1));
+                return (
+                  <li key={r.label} className={r.pct >= 80 ? "strong" : ""}>
+                    <div className="why-head"><span>{r.label} · counts {wt}%</span><span>{r.pct}%</span></div>
+                    <p>Lost: “{r.lost || "blank"}” · Found: “{r.found || "blank"}”</p>
+                    <p>Points earned: {((r.pct * r.wt) / 100).toFixed(1)} of {wt}</p>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="sub" style={{ margin: "12px 0 0" }}>Details left blank on either side are skipped.</p>
+          </>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Settings</h2>
+        <label htmlFor="thr">Minimum similarity for a possible match: {S.thr}%</label>
+        <input type="range" id="thr" min="50" max="95" value={S.thr} onChange={(e) => onThreshold(+e.target.value)} />
+        <div className="thr-scale"><span>50% · Loose</span><span>95% · Strict</span></div>
+        <p className="sub" style={{ margin: "8px 0 0" }}>
+          A verified match now needs <b>{claimMinFor(S.thr)}%</b> or higher. This setting applies to the whole system: every lost report is updated right away as you move the slider.
+        </p>
+        <button className="btn ghost" onClick={() => window.confirm("Reset all data to the sample data?") && onReset()}>Reset demo data</button>
+      </section>
+    </div>
+  );
+}
+/* old page, no longer used (safe to delete later) */
+function EnginePageOld({ S, log, onThreshold, onReset }) {
   const [a, setA] = useState("");
   const [b, setB] = useState("");
   const ka = keywords(a), kb = keywords(b);
@@ -771,33 +1097,51 @@ function EnginePage({ S, log, onThreshold, onReset }) {
   return (
     <div className="stack">
       <section className="card">
-        <h2>How matching works</h2>
-        <p className="sub">When a lost item is submitted, each answer is compared with the same detail on every available found item. Scores are averaged by weight.</p>
-        <p style={{ margin: "0 0 6px" }}>
-          <b>Retrieve</b> records → <b>compare</b> → <b>Levenshtein distance</b> → <b>similarity</b> → <b>possible match?</b>
+               <h2>About this page</h2>
+        <p className="sub">
+          This page controls how the system decides that a lost report and a found item are a possible match.
+          You do not need it for daily work. Use it to adjust how strict matching is, or to show how the algorithm works.
         </p>
-        <label htmlFor="thr">Minimum similarity: {S.thr}%</label>
-        <input type="range" id="thr" min="10" max="90" value={S.thr} onChange={(e) => onThreshold(+e.target.value)} />
 
-        <h2 style={{ marginTop: 26 }}>Last comparison</h2>
+        <h2 style={{ marginTop: 26 }}>1. Matching strictness</h2>
+        <p className="sub">Choose the lowest score a found item needs to appear as a possible match.</p>
+        <label htmlFor="thr">Minimum similarity: {S.thr}%</label>
+        <input type="range" id="thr" min="50" max="95" value={S.thr} onChange={(e) => onThreshold(+e.target.value)} />
+        <div className="thr-scale"><span>50% · Loose</span><span>95% · Strict</span></div>
+        <p className="sub" style={{ margin: "8px 0 0" }}>
+          {S.thr >= 75
+            ? "Strict: only very close matches will show up."
+            : S.thr >= 50
+            ? "Balanced: close matches show up and weak ones are hidden."
+            : "Loose: many matches will show up, including weak ones."}{" "}
+          This only applies to lost reports saved after the change. Existing reports keep their results.
+        </p>
+
+        <h2 style={{ marginTop: 26 }}>2. Last comparison</h2>
+        <p className="sub">After a lost report is saved, this list shows the score of every available found item. It updates as you move the slider.</p>
         {log.length ? (
           <div className="list">
-            {log.map((x, i) => (
-              <div className="row" key={i}>
-                <span>{x.name}</span>
-                <span className={`tag ${x.ok ? "ok" : "bad"}`}>{x.score}% – {x.ok ? "possible match" : "no match"}</span>
-              </div>
-            ))}
+            {log.map((x, i) => {
+              const label = x.score >= CLAIM_MIN ? "verified match" : x.score >= S.thr ? "possible match" : "no match";
+              return (
+                <div className="row" key={i}>
+                  <span>{x.name}</span>
+                  <span className={`tag ${x.score >= S.thr ? "ok" : "bad"}`}>{x.score}% – {label}</span>
+                </div>
+              );
+            })}
           </div>
         ) : (
-          <div className="empty" style={{ marginTop: 10 }}>Submit a lost item to see how each found item scored.</div>
+          <div className="empty" style={{ marginTop: 10 }}>Nothing to show yet. Save a lost report and the scores will appear here until the page is reloaded.</div>
         )}
-        <button className="btn ghost" onClick={onReset}>Reset demo data</button>
+                <h2 style={{ marginTop: 26 }}>3. Reset</h2>
+        <p className="sub">Deletes everything that was added and brings back the sample data.</p>
+        <button className="btn ghost" onClick={() => window.confirm("Reset all data to the sample data?") && onReset()}>Reset demo data</button>
       </section>
 
       <section className="card" style={{ maxWidth: 680 }}>
-        <h2>Try Levenshtein distance</h2>
-        <p className="sub">Type a word or a whole sentence, in English or Tagalog. Only the item details are compared.</p>
+        <h2>4. Test the algorithm</h2>
+        <p className="sub">Type two words or sentences to see how similar the system thinks they are. Try a typo, like "walet" and "wallet". Only item words such as things, colors, and places are compared.</p>
         <Field id="ta" label="Text A" value={a} onChange={setA} textarea />
         <Field id="tb" label="Text B" value={b} onChange={setB} textarea />
         <div className="lev">
@@ -831,13 +1175,13 @@ const HELP_BUTTONS = [
   ["Lost reports", "Track each lost report and the claims recorded for it."],
   ["Claims to review", "Check each claimant's proof, then approve or reject the claim."],
   ["Log found item", "Record an item that was turned in to the Guidance Office."],
-  ["Matching engine", "Set how strict matching is and test how the algorithm compares words."],
+  ["Matching tester", "Type a lost item and a found item side by side and see the score."],
 ];
 
 const HELP_STEPS = [
   ["Levenshtein distance", "Counts how many letters must change to turn one word into another. Fewer changes means more similar, so a typo like \"walet\" still matches \"wallet\"."],
-  ["Compare the details", "Item, color, brand, description, and place are scored one by one, then combined into a single percentage. Item counts the most."],
-  ["Show the results", "60% or higher appears as a possible match. 80% or higher allows a claim to be recorded."],
+  ["Compare the details", "Every detail is graded like a school subject and has its own weight: Item 25%, Color 15%, Location 15%, Brand 10%, Description 10%, and specific details (size, material, marks, and so on) 25%. If a detail clearly differs, the score is capped, and every extra mistake lowers it more."],
+  ["Show the results", "A score at or above the strictness setting appears as a possible match. A verified match needs 15 points more (at least 85%) and allows a claim to be recorded."],
 ];
 
 function HelpModal({ onClose }) {
@@ -956,7 +1300,11 @@ export default function App() {
   const notMine = (lostId, foundId) => {
     setS((p) => ({
       ...p,
-      lost: p.lost.map((l) => (l.id === lostId ? { ...l, matches: l.matches.filter((m) => m.foundId !== foundId) } : l)),
+      lost: p.lost.map((l) =>
+        l.id === lostId
+          ? { ...l, dismissed: [...(l.dismissed || []), foundId], matches: l.matches.filter((m) => m.foundId !== foundId) }
+          : l
+      ),
     }));
     toast("Match dismissed.");
   };
@@ -995,7 +1343,12 @@ export default function App() {
   const reject = (id) => { updateClaim(id, { status: "Rejected", note: "Ownership could not be verified." }); toast("Claim rejected."); };
   const release = (id) => { updateClaim(id, { status: "Released", note: "" }, "Released"); toast("Item released to owner."); };
 
-  const setThreshold = (thr) => setS((p) => ({ ...p, thr }));
+const setThreshold = (thr) =>
+  setS((p) => ({
+    ...p,
+    thr,
+    lost: p.lost.map((l) => ({ ...l, matches: rematch(l, p.found, p.claims, thr) })),
+  }));
   const reset = () => { setS(makeSeed()); setLog([]); toast("Demo data restored."); };
 
   const COUNTS = {

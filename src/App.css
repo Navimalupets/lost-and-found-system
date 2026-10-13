@@ -301,3 +301,11 @@ mark{background:#f6d860;color:#1d2b36;padding:1px 6px;border-radius:4px;font-wei
 .help-steps{counter-reset:step}
 .help-steps li{counter-increment:step}
 .help-steps li b::before{content:counter(step) ". ";color:var(--acc)}
+/* ---------- Matching strictness slider ---------- */
+#thr{-webkit-appearance:none;appearance:none;width:100%;height:8px!important;padding:0!important;border:0!important;border-radius:999px;background:var(--line);outline:none;margin:10px 0 0}
+#thr::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--acc);border:3px solid var(--panel);box-shadow:0 0 0 1px var(--acc);cursor:pointer}
+#thr::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--acc);border:3px solid var(--panel);box-shadow:0 0 0 1px var(--acc);cursor:pointer}
+#thr::-moz-range-track{height:8px;border-radius:999px;background:var(--line)}
+#thr:focus-visible{outline:3px solid color-mix(in srgb,var(--acc) 45%,transparent);outline-offset:4px}
+.thr-scale{display:flex;justify-content:space-between;margin-top:8px;font-size:12.5px;color:var(--mut)}
+.chip.flag{background:var(--badbg);color:var(--bad)}

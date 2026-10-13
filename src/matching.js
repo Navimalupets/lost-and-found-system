@@ -165,37 +165,113 @@ export function textSim(a, b, loose = false) {
   return 0.7 * cover + 0.3 * sym;
 }
 
-// [lost field, found field, weight, loose?]
+/* ---------- GRADE SHEET: every detail has a weight, like grades in school ---------- */
+// [lost field, found field, weight, loose?, label]
 const W = [
-  ["item", "name", 0.3],
-  ["color", "color", 0.15],
-  ["brand", "brand", 0.15, true],
-  ["looks", "desc", 0.15],
-  ["contents", "other", 0.1],
-  ["where", "loc", 0.15],
+  ["item", "name", 0.25, false, "Item"],
+  ["color", "color", 0.15, false, "Color"],
+  ["where", "loc", 0.15, false, "Location"],
+  ["brand", "brand", 0.1, true, "Brand"],
+  ["looks", "desc", 0.1, false, "Description"],
 ];
+const SPECIFIC_W = 0.25; // shared by the item-specific details (size, material, condition, marks...)
+const MIN_GROUPS = 4;    // fewer compared parts than this can never be "verified"
 
-export function score(l, f) {
-  let s = 0, w = 0;
-  W.forEach(([lk, fk, wt, loose]) => {
-    const v = textSim(l[lk], f[fk], loose);
-    if (v !== null) { s += v * wt; w += wt; }
-  });
-  return w ? Math.round((s / w) * 100) : 0;
+// [must reach, highest total score if it does not, message]
+const CAPS = {
+  item: [0.5, 40, "Item is different"],
+  color: [0.5, 70, "Color is different"],
+  brand: [0.5, 75, "Brand is different"],
+  looks: [0.5, 80, "Description does not match"],
+  where: [0.4, 80, "Place is different"],
+};
+
+const blank = (v) => {
+  const s = v == null ? "" : String(v).trim();
+  return !s || /^(n\/?a|none|wala|-+)$/i.test(s);
+};
+const STOP = new Set(["a", "an", "the", "on", "of", "with", "in", "at", "and", "it", "is"]);
+const tokens = (s) =>
+  String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w && !STOP.has(w));
+
+// compare two specific details word by word (typos allowed).
+// strict = true: anything under 80% similar counts as 0%
+function detailSim(a, b, strict = true) {
+  const A = tokens(a), B = tokens(b);
+  if (!A.length || !B.length) return null;
+  const [S, L] = A.length <= B.length ? [A, B] : [B, A];
+  const cover = S.filter((x) => L.some((y) => sim1(x, y) >= 0.8)).length / S.length;
+  return strict && cover < 0.8 ? 0 : cover;
 }
 
-const LABELS = { item: "Item", color: "Color", brand: "Brand", looks: "Description", contents: "Contents", where: "Location" };
+// one row for every specific detail answered on BOTH sides (size, material, marks...)
+function specificRows(l, f) {
+  const le = l.extra || {}, fe = f.extra || {};
+  const rows = [];
+  Object.keys(le).forEach((k) => {
+    if (blank(le[k]) || blank(fe[k])) return;
+    const v = detailSim(le[k], fe[k]);
+    if (v === null) return;
+    rows.push({ label: (l.xl && l.xl[k]) || (f.xl && f.xl[k]) || k, v, lost: String(le[k]) });
+  });
+  if (rows.length) return rows;
+  // older records without separate answers: compare the written summary instead
+  const v = textSim(l.contents, f.other);
+  return v === null ? [] : [{ label: "Hidden details", v, lost: l.contents, fb: true }];
+}
 
-// breakdown per field: why a lost report matches a found item
-export function explain(l, f) {
-  return W.map(([lk, fk, wt, loose]) => {
+function evaluate(l, f) {
+  const parts = [];
+  W.forEach(([lk, fk, wt, loose, label]) => {
     const v = textSim(l[lk], f[fk], loose);
-    if (v === null) return null;
-    const hidden = lk === "contents"; // found "other" details are hidden from students
-    const A = keywords(l[lk], loose), B = keywords(f[fk], loose);
-    const shared = hidden ? [] : A.filter((a) => B.some((b) => sim1(a, b) >= 0.75));
-    return { label: LABELS[lk], pct: Math.round(v * 100), lost: l[lk], found: hidden ? "" : f[fk], shared, hidden };
-  }).filter(Boolean);
+    if (v !== null) parts.push({ k: lk, label, v, wt, lost: l[lk], found: f[fk], loose });
+  });
+  const spec = specificRows(l, f);
+  spec.forEach((r) =>
+    parts.push({ k: "spec", label: r.label, v: r.v, wt: SPECIFIC_W / spec.length, lost: r.lost, found: "", hidden: true, fb: r.fb })
+  );
+
+  let s = 0, w = 0;
+  parts.forEach((p) => { s += p.v * p.wt; w += p.wt; });
+  let total = w ? (s / w) * 100 : 0;
+
+  const flags = [];
+  let cap = 100;
+  parts.forEach((p) => {
+    if (p.k === "spec") {
+      if (p.v < 0.5) { flags.push(p.fb ? "Hidden details do not match" : `${p.label} is different`); cap = Math.min(cap, 80); }
+      return;
+    }
+    const c = CAPS[p.k];
+    if (c && p.v < c[0]) { flags.push(c[2]); cap = Math.min(cap, c[1]); }
+  });
+  if (l.cat && f.cat && l.cat !== f.cat) { flags.push("Category is different"); cap = Math.min(cap, 75); }
+
+  total = Math.min(total, cap);
+  if (flags.length > 1) total -= 5 * (flags.length - 1); // every extra mistake lowers it more
+  const groups = parts.filter((p) => p.k !== "spec").length + (spec.length ? 1 : 0);
+  if (groups < MIN_GROUPS) { flags.push("Not enough details to verify"); total = Math.min(total, 84); }
+
+  return { score: Math.max(0, Math.round(total)), flags, parts };
+}
+
+export const score = (l, f) => evaluate(l, f).score;
+export const why = (l, f) => evaluate(l, f).flags;
+
+// how much of the claimant's proof appears in the hidden details on record
+export function proofScore(proof, f) {
+  const v = detailSim(proof, f.other, false);
+  return v === null ? null : Math.round(v * 100);
+}
+
+// breakdown per detail: why a lost report matches a found item
+export function explain(l, f) {
+  return evaluate(l, f).parts.map((p) => {
+    const hidden = !!p.hidden; // hidden details on the found item are not shown
+    const A = hidden ? [] : keywords(p.lost, p.loose), B = hidden ? [] : keywords(p.found, p.loose);
+    const shared = A.filter((a) => B.some((b) => sim1(a, b) >= 0.75));
+    return { label: p.label, pct: Math.round(p.v * 100), lost: p.lost, found: hidden ? "" : p.found, shared, hidden };
+  });
 }
 
 export function runMatch(lost, found, thr) {
