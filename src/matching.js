@@ -168,13 +168,13 @@ export function textSim(a, b, loose = false) {
 /* ---------- GRADE SHEET: every detail has a weight, like grades in school ---------- */
 // [lost field, found field, weight, loose?, label]
 const W = [
-  ["item", "name", 0.25, false, "Item"],
+  ["item", "name", 0.1, false, "Item"],
   ["color", "color", 0.15, false, "Color"],
   ["where", "loc", 0.15, false, "Location"],
   ["brand", "brand", 0.1, true, "Brand"],
   ["looks", "desc", 0.1, false, "Description"],
 ];
-const SPECIFIC_W = 0.25; // shared by the item-specific details (size, material, condition, marks...)
+const SPECIFIC_W = 0.4; // shared by the item-specific details (size, material, condition, marks...)
 const MIN_GROUPS = 4;    // fewer compared parts than this can never be "verified"
 
 // [must reach, highest total score if it does not, message]

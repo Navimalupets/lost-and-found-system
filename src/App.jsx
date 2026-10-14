@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { detectType, TYPES, GENERIC, buildOther } from "./itemTypes";
-import { lev, runMatch, sameness, keywords, textSim, explain, why, proofScore } from "./matching";
+import { lev, runMatch, sameness, keywords, textSim, explain, why, proofScore, score as matchScore } from "./matching";
 
 /* =====================  DATA  ===================== */
 const KEY = "lf-system-v2";
@@ -34,7 +34,13 @@ function makeSeed() {
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
-    if (s && s.found) return s;
+    if (s && s.found) {
+      s.claims = s.claims.map((c) =>
+        c.status === "Approved" ? { ...c, status: "Released", note: "Ownership verified. Item released to the owner." } : c
+      );
+      s.found = s.found.map((f) => (f.status === "Claimed" ? { ...f, status: "Released" } : f));
+      return s;
+    }
   } catch (e) {}
   return makeSeed();
 }
@@ -61,7 +67,7 @@ const rematch = (l, found, claims, thr) => {
 /* =====================  NAV CONFIG  ===================== */
 const NAV = [
   { section: "Records", area: "Records", items: [["overview", "Dashboard", "home"], ["browse", "Browse reports", "search"], ["mine", "Lost reports", "filePlus"]] },
-  { section: "Guidance office", area: "Guidance office", items: [["claims", "Claims to review", "check"], ["log", "Log found item", "box"]] },
+  { section: "Guidance office", area: "Guidance office", items: [["claims", "Released items", "check"], ["log", "Log found item", "box"]] },
   { section: "System", area: "System", items: [["engine", "Matching tester", "sliders"]] },
 ];
 
@@ -70,7 +76,7 @@ const HEADS = {
   browse: ["Browse reports", "Click a report to see its details and any possible matches."],
   mine: ["Lost reports", "Track each lost report and the claims recorded for it."],
   report: ["Log a lost report", "Fill in the details. The system compares them with found items."],
-  claims: ["Claims to review", "Compare each student's proof with the hidden details on record."],
+  claims: ["Released items", "Items that were claimed and released to their owners are kept here as a record."],
   log: ["Log found item", "Record an item that was brought to the Guidance Office."],
   engine: ["Matching tester", "Type a lost item and a found item to see how the system compares them. Nothing is saved."],
 };
@@ -102,7 +108,7 @@ function Icon({ name, size = 20, className }) {
   );
 }
 
-const TAG_CLASS = { Approved: "ok", Released: "ok", Rejected: "bad", Pending: "warn" };
+const TAG_CLASS = { Released: "ok", Rejected: "bad", Pending: "warn" };
 const Badge = ({ s }) => <span className={`tag ${TAG_CLASS[s] || ""}`}>{s}</span>;
 const fmtDate = (dt) => new Date(dt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
@@ -200,18 +206,17 @@ function ClaimZone({ lost, found, claim, canClaim, claimMin, onNotMine, onSendCl
           <p style={{ margin: 0 }}>Claim status: <Badge s={claim.status} /></p>
           {claim.claimer && <p className="sub" style={{ margin: "8px 0 0" }}>Submitted by {claim.claimer.name} ({claim.claimer.sid})</p>}
           {claim.note && <p className="sub" style={{ margin: "8px 0 0" }}>{claim.note}</p>}
-          {claim.status === "Approved" && <p style={{ margin: "8px 0 0" }}><b>Approved. Ready for release to the owner.</b></p>}
           {claim.status === "Released" && <p style={{ margin: "8px 0 0" }}><b>Released to the owner. Case closed.</b></p>}
         </>
       ) : found.status !== "Available" ? (
-        <p style={{ margin: 0 }}><Badge s="Claimed" /> This item has already been claimed</p>
+        <p style={{ margin: 0 }}><Badge s="Released" /> This item has already been released to its owner</p>
       ) : (
         <>
           {canClaim ? (
-            !claiming && <button className="btn sm" onClick={() => setClaiming(true)}>Record claim</button>
+            !claiming && <button className="btn sm" onClick={() => setClaiming(true)}>Fill up to release</button>
           ) : (
             <p className="sub" style={{ margin: "0 0 4px" }}>
-              Match is below {claimMin}%. Verify with the owner before recording a claim.
+              Match is below {claimMin}%. Verify with the owner before releasing the item.
             </p>
           )}
           {!claiming && <button className="btn sm ghost" onClick={() => onNotMine(lost.id, found.id)}>Not a match</button>}
@@ -255,7 +260,7 @@ function ClaimZone({ lost, found, claim, canClaim, claimMin, onNotMine, onSendCl
                 </div>
 
                 <div className="claim-panel-foot">
-                  <button className="btn sm" style={{ margin: 0 }} onClick={() => onSendClaim(lost.id, found.id, proof, who)}>Save claim</button>
+                  <button className="btn sm" style={{ margin: 0 }} onClick={() => onSendClaim(lost.id, found.id, proof, who)}>Save and release</button>
                   <button className="btn sm ghost" style={{ margin: 0 }} onClick={() => setClaiming(false)}>Cancel</button>
                 </div>
               </div>
@@ -352,9 +357,10 @@ function Facts({ rows }) {
 function Browse({ S, tab, setTab, openId, setOpenId, onNotMine, onSendClaim }) {
   const close = () => setOpenId(null);
   const switchTab = (t) => { setTab(t); setOpenId(null); };
-  const [statusFilter, setStatusFilter] = useState("Available");
-  const FILTERS = [["Available", "Available"], ["Claimed", "Claimed"], ["Released", "Released"]];
-  const foundList = S.found.filter((f) => f.status === statusFilter);
+  const foundList = S.found.filter((f) => f.status === "Available");
+  const lostList = S.lost.filter(
+    (l) => !S.claims.some((c) => c.lostId === l.id && c.status === "Released")
+  );
   const keyOpen = (id) => (e) => {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenId(id); }
   };
@@ -377,19 +383,9 @@ function Browse({ S, tab, setTab, openId, setOpenId, onNotMine, onSendClaim }) {
   return (
     <div>
       <div className="tabs" role="group" aria-label="Report type">
-        <button className={tab === "found" ? "on" : ""} onClick={() => switchTab("found")}>Found items ({S.found.length})</button>
-        <button className={tab === "lost" ? "on" : ""} onClick={() => switchTab("lost")}>Lost reports ({S.lost.length})</button>
+        <button className={tab === "found" ? "on" : ""} onClick={() => switchTab("found")}>Found items ({foundList.length})</button>
+        <button className={tab === "lost" ? "on" : ""} onClick={() => switchTab("lost")}>Lost reports ({lostList.length})</button>
       </div>
-
-      {tab === "found" && (
-        <div className="filters" role="group" aria-label="Filter found items">
-          {FILTERS.map(([val, label]) => (
-            <button key={val} className={statusFilter === val ? "on" : ""} onClick={() => setStatusFilter(val)}>
-              {label} ({S.found.filter((f) => f.status === val).length})
-            </button>
-          ))}
-        </div>
-      )}
 
       <div className="grid2" style={{ marginTop: 14 }}>
         {tab === "found"
@@ -407,9 +403,9 @@ function Browse({ S, tab, setTab, openId, setOpenId, onNotMine, onSendClaim }) {
                 </div>
               </div>
             ))
-            : <div className="empty">No {statusFilter.toLowerCase()} items.</div>
-          : S.lost.length
-          ? S.lost.slice().reverse().map((l, i) => {
+            : <div className="empty">No found items yet.</div>
+          : lostList.length
+          ? lostList.slice().reverse().map((l, i) => {
               const best = l.matches[0];
               return (
                 <div className="item browse-card" key={l.id} style={{ animationDelay: `${i * 50}ms` }}>
@@ -583,7 +579,7 @@ function LostForm({ onSubmitLost, toast }) {
 
   return (
     <section className="card" style={{ maxWidth: 680 }}>
-      <Field id="q-item" label="Item lost" placeholder="e.g. black umbrella" value={form.item} onChange={onItem} />
+      <Field id="q-item" label="Item lost" placeholder="e.g. umbrella" value={form.item} onChange={onItem} />
       {form.item.trim() && (
         <p className="sub" style={{ margin: "8px 0 0" }}>
           <span className={`tag ${typeKey ? "ok" : ""}`}>{typeKey ? `Detected: ${type.title}` : "Item not recognised"}</span>{" "}
@@ -643,7 +639,7 @@ function ReportPage({ onSubmitLost, toast }) {
 }
 
 /* =====================  GUIDANCE  ===================== */
-function ClaimCard({ claim, S, onApprove, onReject, onRelease }) {
+function ClaimCard({ claim, S }) {
   const f = S.found.find((x) => x.id === claim.foundId);
   const l = S.lost.find((x) => x.id === claim.lostId);
   const proofPct = proofScore(claim.proof, f);
@@ -668,29 +664,27 @@ function ClaimCard({ claim, S, onApprove, onReject, onRelease }) {
         </div>
       </div>
       <div className="proof"><b>Hidden details on record</b>{f.other || "None recorded"}</div>
-      {claim.status === "Pending" ? (
-        <>
-          <p style={{ margin: "12px 0 0", fontWeight: 700, color: "var(--ink)" }}>Verify ownership</p>
-          <button className="btn sm ok" onClick={() => onApprove(claim.id)}>Approve claim</button>
-          <button className="btn sm bad" onClick={() => onReject(claim.id)}>Reject claim</button>
-        </>
-      ) : (
-        <button className="btn sm" onClick={() => onRelease(claim.id)}>Mark as released</button>
-      )}
+      {/* status block, wala nang button kasi released na agad */}
+      <div className="proof" style={{ background: "var(--okbg)" }}>
+        <b style={{ color: "var(--ok)" }}>Released to the owner</b>
+        Matched with lost report “{l.item}” · {matchScore(l, f)}% match
+        {claim.releasedAt && <> · {fmtDate(claim.releasedAt)}</>}
+      </div>
     </div>
   );
 }
 
-function ClaimsPage({ S, onApprove, onReject, onRelease }) {
-  const pend = S.claims.filter((c) => ["Pending", "Approved"].includes(c.status));
-  return pend.length ? (
+function ClaimsPage({ S }) {
+  // released lang ang ipinapakita, wala nang pending
+  const list = S.claims.filter((c) => c.status === "Released");
+  return list.length ? (
     <div className="stack">
-      {pend.slice().reverse().map((c) => (
-        <ClaimCard key={c.id} claim={c} S={S} onApprove={onApprove} onReject={onReject} onRelease={onRelease} />
+      {list.slice().reverse().map((c) => (
+        <ClaimCard key={c.id} claim={c} S={S} />
       ))}
     </div>
   ) : (
-    <div className="empty">No claims waiting.</div>
+    <div className="empty">No released items yet.</div>
   );
 }
 
@@ -724,8 +718,7 @@ function LogPage({ onSaveFound, toast }) {
 
   return (
     <section className="card" style={{ maxWidth: 680 }}>
-      <Field id="f-name" label="Item name" placeholder="e.g. red wallet" value={form.name} onChange={onName} />
-      {form.name.trim() && (
+      <Field id="f-name" label="Item name" placeholder="e.g. wallet" value={form.name} onChange={onName} />      {form.name.trim() && (
         <p className="sub" style={{ margin: "8px 0 0" }}>
           <span className={`tag ${typeKey ? "ok" : ""}`}>{typeKey ? `Detected: ${type.title}` : "Item not recognised"}</span>{" "}
           {typeKey ? "Showing the important details for this item." : "Showing general details."}
@@ -852,22 +845,22 @@ const sideRecord = (d) => {
 };
 
 const EMPTY_SIDE = { name: "", cat: "Other", color: "", brand: "", place: "", desc: "", extra: {} };
-const WEIGHTS = { Item: 25, Color: 15, Location: 15, Brand: 10, Description: 10 };
+const WEIGHTS = { Item: 10, Color: 15, Location: 15, Brand: 10, Description: 10 };
 
 // random examples: some match closely, some only partly, some do not match
 const EXAMPLES = [
   {
     note: "Same wallet. Only the spelling of the name is different.",
-    lost: { name: "Red walet", cat: "Wallets & bags", color: "Red", brand: "Fossil", place: "Canteen", desc: "Small leather wallet",
+    lost: { name: "Walet", cat: "Wallets & bags", color: "Red", brand: "Fossil", place: "Canteen", desc: "Small leather wallet",
       extra: { size: "small", material: "leather", condition: "worn", ids: "2 student IDs", marks: "initials MR inside" } },
-    found: { name: "Red Wallet", cat: "Wallets & bags", color: "Red", brand: "Fossil", place: "Canteen", desc: "Small leather wallet with a zipper",
+    found: { name: "Wallet", cat: "Wallets & bags", color: "Red", brand: "Fossil", place: "Canteen", desc: "Small leather wallet with a zipper",
       extra: { size: "small", material: "leather", condition: "worn", ids: "2 student IDs", marks: "initials MR inside" } },
   },
   {
     note: "Same umbrella. The place is written a little differently and the found record has one extra detail.",
-    lost: { name: "Black umbrlla", cat: "Personal items", color: "Black", brand: "Totes", place: "Library", desc: "Big foldable umbrella",
+    lost: { name: "Umbrlla", cat: "Personal items", color: "Black", brand: "Totes", place: "Library", desc: "Big foldable umbrella",
       extra: { kind: "folding", size: "large", handle: "wooden", marks: "initials MR on the strap" } },
-    found: { name: "Black Umbrella", cat: "Personal items", color: "Black", brand: "Totes", place: "Library entrance", desc: "Large folding umbrella with a wooden handle",
+    found: { name: "Umbrella", cat: "Personal items", color: "Black", brand: "Totes", place: "Library entrance", desc: "Large folding umbrella with a wooden handle",
       extra: { kind: "folding", size: "large", handle: "wooden", condition: "worn", marks: "initials MR on the strap" } },
   },
   {
@@ -879,16 +872,16 @@ const EXAMPLES = [
   },
   {
     note: "Same laptop. The color is written in another spelling and the place is more specific.",
-    lost: { name: "Gray laptop", cat: "Electronics", color: "Gray", brand: "Acer", place: "Library", desc: "Acer Aspire laptop",
+    lost: { name: "Laptop", cat: "Electronics", color: "Gray", brand: "Acer", place: "Library", desc: "Acer Aspire laptop",
       extra: { model: "Acer Aspire 5", case: "gray sleeve", lock: "a mountain", charger: "with charger" } },
-    found: { name: "Grey Laptop", cat: "Electronics", color: "Silver", brand: "Acer", place: "Library entrance", desc: "Laptop in a gray sleeve",
+    found: { name: "Laptop", cat: "Electronics", color: "Silver", brand: "Acer", place: "Library entrance", desc: "Laptop in a gray sleeve",
       extra: { model: "Acer Aspire 5", case: "gray sleeve", lock: "mountain wallpaper", charger: "with charger" } },
   },
   {
     note: "Same phone, but the place and the screen condition are different.",
-    lost: { name: "Black phone", cat: "Electronics", color: "Black", brand: "Samsung", place: "Library", desc: "Phone with a clear case",
+    lost: { name: "Phone", cat: "Electronics", color: "Black", brand: "Samsung", place: "Library", desc: "Phone with a clear case",
       extra: { model: "Galaxy A14", case: "clear silicone case", screen: "cracked", lock: "a photo of a dog" } },
-    found: { name: "Black Phone", cat: "Electronics", color: "Black", brand: "Samsung", place: "Hallway", desc: "Black phone in a clear case",
+    found: { name: "Phone", cat: "Electronics", color: "Black", brand: "Samsung", place: "Hallway", desc: "Black phone in a clear case",
       extra: { model: "Galaxy A14", case: "clear case", screen: "scratched", lock: "a photo of a dog" } },
   },
   {
@@ -900,16 +893,16 @@ const EXAMPLES = [
   },
   {
     note: "Different items. Almost nothing matches.",
-    lost: { name: "Blue water bottle", cat: "Personal items", color: "Blue", brand: "Hydro Flask", place: "Gym", desc: "Insulated bottle with stickers",
+    lost: { name: "Water bottle", cat: "Personal items", color: "Blue", brand: "Hydro Flask", place: "Gym", desc: "Insulated bottle with stickers",
       extra: { capacity: "750 ml", material: "stainless steel", condition: "worn", marks: "cat sticker on the lid" } },
-    found: { name: "Red lunch box", cat: "Personal items", color: "Red", brand: "Lock&Lock", place: "Canteen", desc: "Plastic lunch box with a latch",
+    found: { name: "Lunch box", cat: "Personal items", color: "Red", brand: "Lock&Lock", place: "Canteen", desc: "Plastic lunch box with a latch",
       extra: { material: "plastic", contents: "rice and a spoon", condition: "scratched", marks: "name MR written on the lid" } },
   },
   {
     note: "Same kind of bag, but the color, brand, place and details are different.",
-    lost: { name: "Black backpack", cat: "Wallets & bags", color: "Black", brand: "Jansport", place: "Library", desc: "Large backpack",
+    lost: { name: "Backpack", cat: "Wallets & bags", color: "Black", brand: "Jansport", place: "Library", desc: "Large backpack",
       extra: { kind: "backpack", size: "large", condition: "worn", contents: "two notebooks", nametag: "Juan D." } },
-    found: { name: "Blue backpack", cat: "Wallets & bags", color: "Blue", brand: "Eastpak", place: "Gym", desc: "Medium backpack with a front pocket",
+    found: { name: "Backpack", cat: "Wallets & bags", color: "Blue", brand: "Eastpak", place: "Gym", desc: "Medium backpack with a front pocket",
       extra: { kind: "backpack", size: "medium", condition: "torn", contents: "a lunch box", nametag: "Maria S." } },
   },
 ];
@@ -930,7 +923,7 @@ function TestSide({ kind, data, onChange }) {
   return (
     <section className="card">
       <span className={`kind ${kind}`}>{lost ? "Lost item" : "Found item"}</span>
-      <Field id={`${kind}-name`} label="Item" placeholder={lost ? "e.g. red walet" : "e.g. Red Wallet"} value={data.name} onChange={onName} />
+      <Field id={`${kind}-name`} label="Item" placeholder={lost ? "e.g. walet" : "e.g. Wallet"} value={data.name} onChange={onName} />
       {data.name.trim() && (
         <p className="sub" style={{ margin: "8px 0 0" }}>
           <span className={`tag ${type.detected ? "ok" : ""}`}>{type.detected ? `Detected: ${type.title}` : "Item not recognised"}</span>{" "}
@@ -1002,7 +995,7 @@ function EnginePage({ S, onThreshold, onReset }) {
       return {
         ...r,
         found: r.hidden ? (fk ? F.extra[fk] : "") : r.found,
-        wt: r.hidden ? 25 / specN : WEIGHTS[r.label] || 0,
+        wt: r.hidden ? 40 / specN : WEIGHTS[r.label] || 0,
       };
     });
     const wSum = rows.reduce((a, r) => a + r.wt, 0);
@@ -1171,16 +1164,15 @@ function EnginePageOld({ S, log, onThreshold, onReset }) {
 /* =====================  HELP  ===================== */
 const HELP_BUTTONS = [
   ["Dashboard", "A summary of lost reports, found items, possible matches, and items returned."],
-  ["Browse reports", "View all found items (filter by Available, Claimed, or Released) and all lost reports."],
-  ["Lost reports", "Track each lost report and the claims recorded for it."],
-  ["Claims to review", "Check each claimant's proof, then approve or reject the claim."],
+  ["Browse reports", "View found items waiting for owners and lost reports that are still open."],
+  ["Released items", "A record of items that were claimed and released to their owners."],
   ["Log found item", "Record an item that was turned in to the Guidance Office."],
   ["Matching tester", "Type a lost item and a found item side by side and see the score."],
 ];
 
 const HELP_STEPS = [
   ["Levenshtein distance", "Counts how many letters must change to turn one word into another. Fewer changes means more similar, so a typo like \"walet\" still matches \"wallet\"."],
-  ["Compare the details", "Every detail is graded like a school subject and has its own weight: Item 25%, Color 15%, Location 15%, Brand 10%, Description 10%, and specific details (size, material, marks, and so on) 25%. If a detail clearly differs, the score is capped, and every extra mistake lowers it more."],
+  ["Compare the details", "Every detail is graded like a school subject and has its own weight: Item 10%, Color 15%, Location 15%, Brand 10%, Description 10%, and specific details (size, material, marks, and so on) 40%. If a detail clearly differs, the score is capped, and every extra mistake lowers it more."],
   ["Show the results", "A score at or above the strictness setting appears as a possible match. A verified match needs 15 points more (at least 85%) and allows a claim to be recorded."],
 ];
 
@@ -1314,12 +1306,14 @@ export default function App() {
     if (missing) return toast("Fill in all claimant information.");
     if (!proof.trim()) return toast("Add the claimant's proof of ownership.");
     const claimer = Object.fromEntries(Object.entries(who).map(([k, v]) => [k, v.trim()]));
+    // pag na-save ang claim, released na agad at nagiging Released din ang found item
     setS((p) => ({
       ...p,
-      claims: [...p.claims, { id: p.nid, lostId, foundId, claimer, proof: proof.trim(), status: "Pending", note: "Awaiting verification." }],
+      claims: [...p.claims, { id: p.nid, lostId, foundId, claimer, proof: proof.trim(), status: "Released", releasedAt: new Date().toISOString(), note: "Ownership verified. Item released to the owner." }],
+      found: p.found.map((f) => (f.id === foundId ? { ...f, status: "Released" } : f)),
       nid: p.nid + 1,
     }));
-    toast("Claim recorded.");
+    toast("Item released to owner.");
   };
 
   const saveFound = (form) => {
@@ -1329,19 +1323,6 @@ export default function App() {
     go("browse", "found", f.id);
   };
 
-  const updateClaim = (claimId, patch, foundStatus) =>
-    setS((p) => {
-      const c = p.claims.find((x) => x.id === claimId);
-      return {
-        ...p,
-        claims: p.claims.map((x) => (x.id === claimId ? { ...x, ...patch } : x)),
-        found: foundStatus ? p.found.map((f) => (f.id === c.foundId ? { ...f, status: foundStatus } : f)) : p.found,
-      };
-    });
-
-  const approve = (id) => { updateClaim(id, { status: "Approved", note: "Ownership verified. Ready for release." }, "Claimed"); toast("Claim approved."); };
-  const reject = (id) => { updateClaim(id, { status: "Rejected", note: "Ownership could not be verified." }); toast("Claim rejected."); };
-  const release = (id) => { updateClaim(id, { status: "Released", note: "" }, "Released"); toast("Item released to owner."); };
 
 const setThreshold = (thr) =>
   setS((p) => ({
@@ -1351,9 +1332,7 @@ const setThreshold = (thr) =>
   }));
   const reset = () => { setS(makeSeed()); setLog([]); toast("Demo data restored."); };
 
-  const COUNTS = {
-    claims: S.claims.filter((c) => c.status === "Pending").length,
-  };
+  const COUNTS = {};
 
   const VIEWS = {
     overview: <Overview S={S} go={go} />,
@@ -1370,7 +1349,7 @@ const setThreshold = (thr) =>
     ),
     mine: <MyReports S={S} go={go} />,
     report: <ReportPage onSubmitLost={submitLost} toast={toast} />,
-    claims: <ClaimsPage S={S} onApprove={approve} onReject={reject} onRelease={release} />,
+    claims: <ClaimsPage S={S} />,
     log: <LogPage onSaveFound={saveFound} toast={toast} />,
     engine: <EnginePage S={S} log={log} onThreshold={setThreshold} onReset={reset} />,
   };
